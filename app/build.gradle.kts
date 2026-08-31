@@ -7,6 +7,8 @@ plugins {
     application
 }
 
+group = "io.github.2026-neungdong-itprograming"
+
 dependencies {
     // Source: https://mvnrepository.com/artifact/it.unimi.dsi/fastutil
     implementation("it.unimi.dsi:fastutil:8.5.19")
@@ -23,5 +25,5 @@ dependencies {
 application {
     // Define the Fully Qualified Name for the application main class
     // (Note that Kotlin compiles `App.kt` to a class with FQN `com.example.app.AppKt`.)
-    mainClass = "io.github.jwyoon1220.app.AppKt"
+    mainClass = "io.github.nd2026.edited.AppKt"
 }
