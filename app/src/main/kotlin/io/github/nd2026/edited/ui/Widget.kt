@@ -6,6 +6,8 @@ import io.github.nd2026.edited.theme.Theme
 import io.github.nd2026.edited.theme.ThemeProvider
 import java.awt.Graphics2D
 import java.awt.Rectangle
+import io.github.nd2026.edited.ui.layout.Constraints
+import io.github.nd2026.edited.ui.layout.IntSize
 
 /**
  * Base of the toolkit's own retained widget tree - the Kotlin analogue of Swing's `JComponent`,
@@ -32,7 +34,56 @@ abstract class Widget : Painter {
     val children: MutableList<Widget> = mutableListOf()
 
     var visible: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
+    var enabled: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            if (!value) {
+                hovered = false
+                pressed = false
+            }
+            requestRepaint()
+        }
+
     var focusable: Boolean = false
+    var selected: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
+    var hovered: Boolean = false
+        internal set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
+    var pressed: Boolean = false
+        internal set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
+    var focused: Boolean = false
+        internal set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
+    var semantics: Semantics = Semantics()
+
+    var measuredSize: IntSize = IntSize.Zero
+        private set
 
     val theme: Theme
         get() = hostPane?.themeProvider?.current ?: ThemeProvider.default.current
@@ -63,6 +114,14 @@ abstract class Widget : Painter {
         layout()
     }
 
+    fun measure(constraints: Constraints = Constraints()): IntSize {
+        measuredSize = constraints.constrain(onMeasure(constraints))
+        return measuredSize
+    }
+
+    protected open fun onMeasure(constraints: Constraints): IntSize =
+        constraints.constrain(IntSize(bounds.width, bounds.height))
+
     /** Requests a repaint of [region] (root-relative), or this widget's whole bounds if null. */
     fun requestRepaint(region: Rectangle? = null) {
         hostPane?.scheduler?.requestRepaint(region ?: bounds)
@@ -73,8 +132,8 @@ abstract class Widget : Painter {
         for (child in children) child.layout()
     }
 
-    fun hitTest(x: Int, y: Int): Widget? {
-        if (!visible || !bounds.contains(x, y)) return null
+    open fun hitTest(x: Int, y: Int): Widget? {
+        if (!visible || !enabled || !bounds.contains(x, y)) return null
         for (i in children.indices.reversed()) {
             children[i].hitTest(x, y)?.let { return it }
         }

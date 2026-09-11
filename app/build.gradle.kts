@@ -20,6 +20,7 @@ dependencies {
     implementation("org.apache.lucene:lucene-analyzers-nori:8.11.4")
     // Source: https://mvnrepository.com/artifact/org.eclipse.jgit/org.eclipse.jgit
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.7.1.202607240634-r")
+    testImplementation(kotlin("test"))
 }
 
 application {

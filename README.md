@@ -8,12 +8,12 @@
 
 ---
 
-### 2. 전체 기술 스택 및 역할 (100% Java/Swing)
+### 2. 전체 기술 스택 및 역할 (Kotlin/JVM + Swing/AWT 브리지)
 
 | 구분 | 선택 기술 스택 | 핵심 역할 및 도입 이유 |
 | --- | --- | --- |
-| **App Framework** | **Java 17+ / Kotlin + Swing** | IntelliJ와 동일한 아키텍처. **FlatLaf**로 현대적 UI 적용 및 크로스 플랫폼(Windows/Mac) 지원. |
-| **Editor Core** | **Custom JComponent Canvas** | Virtual Scrolling & Custom Painting (`paintComponent`)으로 수십만 자의 대용량 원고도 **지연시간 0ms** 렌더링. |
+| **App Framework** | **Java 25 / Kotlin + Swing bridge** | 창마다 직접 구현한 하나의 `JComponent`만 Swing에 연결하고, 내부 UI는 자체 `Widget` 트리와 Material 3 토큰으로 렌더링. Windows/Mac 크로스 플랫폼 지원. |
+| **Editor Core** | **Custom JComponent Canvas** | Virtual Scrolling & Custom Painting (`paintComponent`)으로 수십만 자의 대용량 원고도 viewport에 비례하는 비용으로 렌더링. |
 | **Version Control** | **Eclipse JGit** | Pure Java 기반 Git 코어. 백그라운드 **자동 커밋, 브랜칭(IF 시나리오), 커밋 히스토리 관리**. |
 | **NLP & Lexer** | **Apache Lucene Nori** | C++ 의존성 없는 Pure Java 형태소 분석기. **로컬 사용자 사전(Custom Dict)** 바인딩으로 고유명사 오탐 방지. |
 | **Graph / Diagram** | **JGraphT** | **인물 관계 트리 및 사건 인과관계도(Event Graph)**의 백엔드 데이터 구조 및 시각화 렌더링. |
@@ -67,6 +67,15 @@
 
 ### 5. 핵심 경쟁력 요약
 
-* **Zero GPU / 0ms On-Device Performance:** LLM 없이 Pure Java (Nori + Rule Engine + FSM)로 구동되어 VRAM 점유 없이 초고속 추론.
+* **Zero GPU / Measurable On-Device Performance:** LLM 없이 Pure Java (Nori + Rule Engine + FSM)로 구동하고, 입력 지연·프레임 시간·repaint 면적을 회귀 지표로 관리.
 * **Determinism & Stability:** 환각(Hallucination) 없는 명확한 규칙 기반 검수와 JGit의 절대적인 데이터 안정성 확보.
 * **Developer-like Author UX:** IntelliJ의 `Alt + Enter`, `Find Usages`, `Gutter bar`, `Structure View` 등의 UX를 웹소설 창작 환경에 이식.
+
+---
+
+### 6. GUI 구현 경계
+
+* 허용되는 Swing 경계는 최상위 `JFrame`, EDT 예약용 `SwingUtilities`, 그리고 창마다 하나씩 두는 직접 구현 `RootPane : JComponent`이다.
+* `JButton`, `JPanel`, `JTextArea`, `JTree`, `JTabbedPane`, `JSplitPane`, `JPopupMenu`, `JDialog` 등의 기본 Swing UI 컴포넌트는 사용하지 않는다.
+* 버튼, 탭, 메뉴, 다이얼로그, 트리, 스크롤, 편집기와 Docking UI는 Java2D로 그리는 자체 `Widget`으로 구현한다.
+* 상세 컴포넌트 목록과 구현 순서는 [`GUI_MATERIAL_DOCKING_PLAN.md`](GUI_MATERIAL_DOCKING_PLAN.md)를 따른다.
