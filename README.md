@@ -15,7 +15,7 @@
 | **App Framework** | **Java 25 / Kotlin + Swing bridge** | 창마다 직접 구현한 하나의 `JComponent`만 Swing에 연결하고, 내부 UI는 자체 `Widget` 트리와 Material 3 토큰으로 렌더링. Windows/Mac 크로스 플랫폼 지원. |
 | **Editor Core** | **Custom JComponent Canvas** | Virtual Scrolling & Custom Painting (`paintComponent`)으로 수십만 자의 대용량 원고도 viewport에 비례하는 비용으로 렌더링. |
 | **Version Control** | **Eclipse JGit** | Pure Java 기반 Git 코어. 백그라운드 **자동 커밋, 브랜칭(IF 시나리오), 커밋 히스토리 관리**. |
-| **NLP & Lexer** | **Apache Lucene Nori** | C++ 의존성 없는 Pure Java 형태소 분석기. **로컬 사용자 사전(Custom Dict)** 바인딩으로 고유명사 오탐 방지. |
+| **NLP & Lexer** | **Kiwi (JNI 바인딩)** | C++ 기반 고성능 한국어 형태소 분석기. **로컬 사용자 사전(Custom Dict)** 등록으로 고유명사 오탐 방지. |
 | **Graph / Diagram** | **JGraphT** | **인물 관계 트리 및 사건 인과관계도(Event Graph)**의 백엔드 데이터 구조 및 시각화 렌더링. |
 
 ---
@@ -26,7 +26,7 @@
 [ 소스 원고 (.md / .txt) ]
           │
           ▼
-[ 1. Lexer (Nori + 로컬 사용자 사전) ] ➔ 형태소 및 고유명사 토큰화
+[ 1. Lexer (Kiwi + 로컬 사용자 사전) ] ➔ 형태소 및 고유명사 토큰화
           │
           ▼
 [ 2. Parser & NSI Tree (Novel Structure Interface) ] ➔ 문장/문단/인물/사건 AST 구조화
@@ -67,7 +67,7 @@
 
 ### 5. 핵심 경쟁력 요약
 
-* **Zero GPU / Measurable On-Device Performance:** LLM 없이 Pure Java (Nori + Rule Engine + FSM)로 구동하고, 입력 지연·프레임 시간·repaint 면적을 회귀 지표로 관리.
+* **Zero GPU / Measurable On-Device Performance:** LLM 없이 Kiwi + Rule Engine + FSM로 구동하고, 입력 지연·프레임 시간·repaint 면적을 회귀 지표로 관리.
 * **Determinism & Stability:** 환각(Hallucination) 없는 명확한 규칙 기반 검수와 JGit의 절대적인 데이터 안정성 확보.
 * **Developer-like Author UX:** IntelliJ의 `Alt + Enter`, `Find Usages`, `Gutter bar`, `Structure View` 등의 UX를 웹소설 창작 환경에 이식.
 
@@ -79,3 +79,15 @@
 * `JButton`, `JPanel`, `JTextArea`, `JTree`, `JTabbedPane`, `JSplitPane`, `JPopupMenu`, `JDialog` 등의 기본 Swing UI 컴포넌트는 사용하지 않는다.
 * 버튼, 탭, 메뉴, 다이얼로그, 트리, 스크롤, 편집기와 Docking UI는 Java2D로 그리는 자체 `Widget`으로 구현한다.
 * 상세 컴포넌트 목록과 구현 순서는 [`GUI_MATERIAL_DOCKING_PLAN.md`](GUI_MATERIAL_DOCKING_PLAN.md)를 따른다.
+
+---
+
+### 7. Kiwi 형태소 분석기 준비
+
+Kiwi는 Maven Central에 없으므로 JNI 바인딩 jar(`kiwi-java-*-win-x64.jar`, 네이티브 `KiwiJava.dll` 포함)를 `app/libs/`에 두었고, 용량이 큰 언어 모델은 저장소에 포함하지 않는다.
+
+1. [Kiwi Releases](https://github.com/bab2min/Kiwi/releases)에서 `kiwi_model_v0.24.0_base.tgz`를 받는다.
+2. `app/models/` 아래에 풀어 `app/models/cong/base/cong.mdl` 등이 놓이게 한다.
+3. 다른 위치를 쓰려면 `-Dkiwi.model=<경로>` 또는 환경변수 `KIWI_MODEL`을 지정한다.
+
+다른 OS는 해당 플랫폼의 `kiwi-java-*.jar`로 교체한다.

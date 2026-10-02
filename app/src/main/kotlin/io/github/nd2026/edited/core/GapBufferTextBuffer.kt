@@ -126,8 +126,8 @@ class GapBufferTextBuffer(initialCapacity: Int = 64) : TextBuffer {
         gapEnd += (end - start)
 
         val delta = end - start
-        val fromIdx = maxOf(1, lineStarts.ceilingIndex(start))
-        val toIdx = lineStarts.ceilingIndex(end)
+        val fromIdx = maxOf(1, lineStarts.ceilingIndex(start + 1))
+        val toIdx = lineStarts.ceilingIndex(end + 1)
         lineStarts.removeRange(fromIdx, toIdx)
         for (i in fromIdx until lineStarts.size) lineStarts[i] = lineStarts[i] - delta
     }

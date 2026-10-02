@@ -25,11 +25,20 @@ class FocusManager {
 
     private var scope: Widget? = null
 
+    // Focus owner from before a modal scope opened, handed back when the scope closes.
+    private var returnFocus: Widget? = null
+
     fun setScope(widget: Widget?) {
+        if (widget != null && scope == null) returnFocus = focused
         scope = widget
         if (widget != null && focused?.isDescendantOf(widget) != true) {
             clear()
             firstFocusable(widget)?.let(::requestFocus)
+        }
+        if (widget == null) {
+            if (focused?.hostPane == null) clear() // the scope's widgets are gone
+            returnFocus?.takeIf { it.hostPane != null }?.let(::requestFocus)
+            returnFocus = null
         }
     }
 

@@ -4,6 +4,11 @@ import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.core.TextAreaListener
 import io.github.nd2026.edited.core.TextEdit
 import io.github.nd2026.edited.event.InputEvent
+import io.github.nd2026.edited.lexer.DefaultMorphemeAnalyzer
+import io.github.nd2026.edited.lexer.MorphemeAnalyzer
+import io.github.nd2026.edited.lexer.MorphemeIndex
+import io.github.nd2026.edited.lexer.MorphemeIndexListener
+import io.github.nd2026.edited.lexer.Morpheme
 import io.github.nd2026.edited.render.PixelMetrics
 import io.github.nd2026.edited.ui.components.ContextMenuItem
 import io.github.nd2026.edited.ui.components.ContextMenuWidget
@@ -21,7 +26,15 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 /** Virtualized, toolkit-native text editor with selection, clipboard and context menu support. */
-class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), TextInputClient {
+class TextAreaWidget(
+    private val textArea: TextArea = TextArea(),
+    private val analyzer: MorphemeAnalyzer = DefaultMorphemeAnalyzer,
+) : Widget(), TextInputClient {
+    private var morphemeIndex: MorphemeIndex? = null
+
+    /** The sentence under the mouse (document offsets, end exclusive), the only text that gets POS colors. */
+    private var hoveredSentence: IntRange? = null
+
     private var scrollY = 0
     private var lastLineHeight = 20
     private var selectionDrag = false
@@ -43,13 +56,23 @@ class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), Te
             actions = setOf(Semantics.Action.FOCUS, Semantics.Action.SET_VALUE),
         )
         textArea.addListener(object : TextAreaListener {
-            override fun onTextChanged(edit: TextEdit) = resetCaretBlink()
+            override fun onTextChanged(edit: TextEdit) {
+                hoveredSentence = null // offsets are stale after an edit; the next mouse move recomputes
+                resetCaretBlink()
+            }
             override fun onCaretMoved(offset: Int) = resetCaretBlink()
             override fun onSelectionChanged(range: IntRange?) = requestRepaint()
         })
     }
 
     override fun onAttach() {
+        if (morphemeIndex == null) {
+            morphemeIndex = MorphemeIndex(textArea, analyzer).also { index ->
+                index.addListener(object : MorphemeIndexListener {
+                    override fun onLineAnalyzed(line: Int, morphemes: List<Morpheme>) = requestRepaint()
+                })
+            }
+        }
         if (blinkTask != null) return
         blinkTask = caretClock.scheduleAtFixedRate({
             if (focused) {
@@ -62,6 +85,8 @@ class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), Te
     }
 
     override fun onDetach() {
+        morphemeIndex?.close()
+        morphemeIndex = null
         blinkTask?.cancel(false)
         blinkTask = null
         dismissContextMenu()
@@ -88,11 +113,12 @@ class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), Te
                 paintCompositionLine(g, metrics, line, lineText)
             } else {
                 paintSelection(g, metrics, line, lineText)
-                g.color = t.onSurface
-                g.drawString(lineText, TEXT_INSET, metrics.baselineOf(line) - scrollY)
+                paintLine(g, metrics, line, lineText)
             }
             line++
         }
+
+        paintMorphemePopup(g, metrics, visibleRange)
 
         if (focused && caretVisible) {
             val caretLine = compositionLine() ?: textArea.lineOf(textArea.caret)
@@ -108,6 +134,128 @@ class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), Te
                 g.drawLine(caretX, caretY + 2, caretX, caretY + metrics.lineHeight - 2)
             }
         }
+    }
+
+    /** Plain text, except the hovered sentence, whose chars are colored by their morpheme's part of speech. */
+    private fun paintLine(g: Graphics2D, metrics: PixelMetrics, line: Int, lineText: String) {
+        val baseline = metrics.baselineOf(line) - scrollY
+        val lineStart = textArea.lineStart(line)
+        val sentence = hoveredSentence
+        val morphemes = morphemeIndex?.morphemesForLine(line)
+        val from = ((sentence?.first ?: 0) - lineStart).coerceIn(0, lineText.length)
+        val to = (((sentence?.last ?: -1) + 1) - lineStart).coerceIn(from, lineText.length)
+        if (sentence == null || morphemes.isNullOrEmpty() || from == to) {
+            g.color = theme.onSurface
+            g.drawString(lineText, TEXT_INSET, baseline)
+            return
+        }
+
+        // Morphemes can share a source span (e.g. contracted syllables); the first one wins.
+        val colors = arrayOfNulls<Color>(lineText.length)
+        for (m in morphemes) {
+            val color = PosHighlight.colorFor(theme, m.partOfSpeech)
+            for (i in (m.start - lineStart).coerceAtLeast(from) until (m.end - lineStart).coerceAtMost(to)) {
+                if (colors[i] == null) colors[i] = color
+            }
+        }
+
+        var runStart = 0
+        while (runStart < lineText.length) {
+            val color = colors[runStart] ?: theme.onSurface
+            var runEnd = runStart + 1
+            while (runEnd < lineText.length && (colors[runEnd] ?: theme.onSurface) == color) runEnd++
+            g.color = color
+            g.drawString(
+                lineText.substring(runStart, runEnd),
+                TEXT_INSET + g.fontMetrics.stringWidth(lineText.take(runStart)),
+                baseline,
+            )
+            runStart = runEnd
+        }
+    }
+
+    /** A small card next to the hovered sentence listing its morphemes as `surface/TAG`. */
+    private fun paintMorphemePopup(g: Graphics2D, metrics: PixelMetrics, visibleRange: IntRange) {
+        val sentence = hoveredSentence ?: return
+        val line = textArea.lineOf(sentence.first)
+        if (line !in visibleRange || composedText.isNotEmpty()) return
+        val morphemes = morphemeIndex?.morphemesForLine(line)
+            ?.filter { it.start >= sentence.first && it.start <= sentence.last } ?: return
+        if (morphemes.isEmpty()) return
+
+        val fm = g.fontMetrics
+        val padding = 8
+        val gap = fm.stringWidth("  ")
+        val maxWidth = (bounds.width - 2 * TEXT_INSET).coerceAtLeast(120)
+        val rowHeight = fm.height + 2
+
+        // Lay out tokens left to right, wrapping when a row would exceed the card width.
+        class Token(val surface: String, val tag: String, val color: Color, val x: Int, val row: Int)
+        val tokens = ArrayList<Token>()
+        var x = 0
+        var row = 0
+        var widest = 0
+        for (m in morphemes) {
+            val tag = "/${m.partOfSpeech}"
+            val width = fm.stringWidth(m.surface) + fm.stringWidth(tag)
+            if (x > 0 && x + width > maxWidth - 2 * padding) { x = 0; row++ }
+            tokens += Token(m.surface, tag, PosHighlight.colorFor(theme, m.partOfSpeech), x, row)
+            x += width + gap
+            widest = maxOf(widest, x - gap)
+        }
+        val cardWidth = widest + 2 * padding
+        val cardHeight = (row + 1) * rowHeight + 2 * padding
+        val cardX = TEXT_INSET.coerceAtMost((bounds.width - cardWidth).coerceAtLeast(0))
+        val lineTop = metrics.topOf(line) - scrollY
+        val below = lineTop + metrics.lineHeight + 4
+        val cardY = if (below + cardHeight <= bounds.height) below else (lineTop - cardHeight - 4).coerceAtLeast(0)
+
+        g.color = theme.surface
+        g.fillRoundRect(cardX, cardY, cardWidth, cardHeight, 10, 10)
+        g.color = theme.outline
+        g.drawRoundRect(cardX, cardY, cardWidth - 1, cardHeight - 1, 10, 10)
+        for (t in tokens) {
+            val tx = cardX + padding + t.x
+            val baseline = cardY + padding + t.row * rowHeight + fm.ascent
+            g.color = t.color
+            g.drawString(t.surface, tx, baseline)
+            g.color = theme.outline
+            g.drawString(t.tag, tx + fm.stringWidth(t.surface), baseline)
+        }
+    }
+
+    /** The sentence containing [offset] within its line, or null over blank space. */
+    private fun sentenceAt(offset: Int): IntRange? {
+        val line = textArea.lineOf(offset)
+        val text = textArea.lineText(line)
+        if (text.isBlank()) return null
+        val lineStart = textArea.lineStart(line)
+        val column = (offset - lineStart).coerceIn(0, text.length - 1)
+        if (text[column].isWhitespace()) return null
+
+        var start = 0
+        var i = 0
+        while (i < text.length) {
+            var end = i
+            while (end < text.length && text[end] !in SENTENCE_END) end++
+            if (end < text.length) {
+                end++
+                while (end < text.length && (text[end] in SENTENCE_END || text[end] in SENTENCE_CLOSERS)) end++
+            }
+            if (column < end) {
+                while (start < end && text[start].isWhitespace()) start++
+                return (lineStart + start) until (lineStart + end)
+            }
+            i = end
+            start = end
+        }
+        return null
+    }
+
+    private fun updateHoveredSentence(sentence: IntRange?) {
+        if (sentence == hoveredSentence) return
+        hoveredSentence = sentence
+        requestRepaint()
     }
 
     private fun paintCompositionLine(g: Graphics2D, metrics: PixelMetrics, line: Int, lineText: String) {
@@ -219,6 +367,14 @@ class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), Te
         is InputEvent.MouseCancelled -> {
             selectionDrag = false
             true
+        }
+        is InputEvent.MouseMoved -> {
+            updateHoveredSentence(sentenceAt(offsetAt(event.x, event.y)))
+            false
+        }
+        is InputEvent.MouseExited -> {
+            updateHoveredSentence(null)
+            false
         }
         is InputEvent.Scroll -> {
             val maxScroll = (textArea.lineCount * lastLineHeight - bounds.height).coerceAtLeast(0)
@@ -418,6 +574,8 @@ class TextAreaWidget(private val textArea: TextArea = TextArea()) : Widget(), Te
 
     companion object {
         private const val TEXT_INSET = 8
+        private const val SENTENCE_END = ".!?。…"
+        private const val SENTENCE_CLOSERS = "\"'”’」』)]"
         private const val CARET_BLINK_MILLIS = 530L
         private val menuShortcutMask = try {
             Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx

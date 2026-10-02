@@ -177,7 +177,13 @@ class RootPane : JComponent() {
     }
 
     private fun dispatchKey(event: InputEvent.KeyInput) {
-        val consumed = focusManager.focused?.onKeyEvent(event) == true
+        // Bubble from the focused widget up through its ancestors (e.g. a dialog handling Escape).
+        var consumed = false
+        var node = focusManager.focused
+        while (node != null && !consumed) {
+            consumed = node.onKeyEvent(event)
+            node = node.parent
+        }
         if (!consumed && event is InputEvent.KeyPressed) keymap.dispatch(event)
     }
 

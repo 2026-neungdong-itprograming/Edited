@@ -2,8 +2,8 @@ package io.github.nd2026.edited.lexer
 
 /**
  * Turns Korean text into morphemes. Kept as a pure, stateless-per-call interface - like
- * [io.github.nd2026.edited.core.TextBuffer] - so the Nori-backed implementation can be swapped
- * for a fake in tests without either side knowing about Lucene.
+ * [io.github.nd2026.edited.core.TextBuffer] - so the Kiwi-backed implementation can be swapped
+ * for a fake in tests without either side knowing about the native binding.
  */
 interface MorphemeAnalyzer {
     /**

@@ -20,7 +20,10 @@ class OverlayHostWidget(content: Widget? = null) : Container() {
     override fun layout() {
         val b = bounds
         content?.setBounds(b.x, b.y, b.width, b.height)
-        overlays.forEach { it.widget.layout() }
+        for (entry in overlays) {
+            // Modal overlays (dialogs) cover the whole host so they can paint a scrim.
+            if (entry.modal) entry.widget.setBounds(b.x, b.y, b.width, b.height) else entry.widget.layout()
+        }
     }
 
     fun showOverlay(widget: Widget, modal: Boolean = false, dismissOnOutside: Boolean = false) {

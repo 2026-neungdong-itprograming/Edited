@@ -1,7 +1,7 @@
 package io.github.nd2026.edited.core
 
 /**
- * Extension point for external systems (rendering backend, Lucene/Nori lexer, JGit
+ * Extension point for external systems (rendering backend, Kiwi lexer, JGit
  * versioning, linter, event graph, ...) to observe a [TextArea] without it knowing about
  * any of them. Implementers override only the callbacks they care about.
  */

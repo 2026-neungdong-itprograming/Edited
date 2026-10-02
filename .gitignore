@@ -43,3 +43,5 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+### Kiwi language model (download separately, see README.md) ###
+app/models/

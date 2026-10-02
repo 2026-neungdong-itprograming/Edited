@@ -2,19 +2,27 @@ package io.github.nd2026.edited
 
 import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.event.InputEvent
+import io.github.nd2026.edited.project.CreatedProject
+import io.github.nd2026.edited.project.ProjectNode
 import io.github.nd2026.edited.theme.MaterialDarkTheme
 import io.github.nd2026.edited.theme.MaterialLightTheme
+import io.github.nd2026.edited.ui.Command
 import io.github.nd2026.edited.ui.Container
+import io.github.nd2026.edited.ui.KeyStroke
+import io.github.nd2026.edited.ui.NewProjectDialog
 import io.github.nd2026.edited.ui.OverlayHostWidget
 import io.github.nd2026.edited.ui.RootPane
 import io.github.nd2026.edited.ui.TextAreaWidget
 import io.github.nd2026.edited.ui.Widget
+import io.github.nd2026.edited.ui.components.ButtonWidget
 import io.github.nd2026.edited.ui.components.TabBarWidget
 import io.github.nd2026.edited.ui.components.TabItem
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics2D
 import java.awt.Rectangle
+import java.awt.Toolkit
+import java.awt.event.KeyEvent
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
 
@@ -27,8 +35,25 @@ class Main : JFrame() {
         minimumSize = Dimension(900, 600)
         defaultCloseOperation = EXIT_ON_CLOSE
         setLocationRelativeTo(null)
+        val workspace = MockWorkspaceWidget()
+        val host = OverlayHostWidget(workspace)
+        var dialogOpen = false
+        val newProject = {
+            if (!dialogOpen) {
+                dialogOpen = true
+                NewProjectDialog { created ->
+                    title = "Texted — ${created.project.title}"
+                    workspace.showProject(created)
+                }.also { it.onClosed = { dialogOpen = false } }.show(host)
+            }
+        }
+        workspace.onNewProject = newProject
         contentPane.add(RootPane().apply {
-            content = OverlayHostWidget(MockWorkspaceWidget())
+            content = host
+            keymap.bind(
+                KeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx),
+                Command { newProject(); true },
+            )
         })
     }
 }
@@ -37,6 +62,8 @@ class Main : JFrame() {
 private class MockWorkspaceWidget : Container() {
     private val topBar = MockTopBarWidget()
     private val toolStrip = MockToolStripWidget()
+    var onNewProject: () -> Unit = {}
+    private val newProjectButton = ButtonWidget("＋ 새 프로젝트").apply { onClick = { onNewProject() } }
     private val project = MockToolPaneWidget("Project", listOf(
         "▾  달빛 아래의 계약", "    01. 낯선 손님.md", "    02. 깨진 약속.md",
         "    03. 귀환.md", "▸  인물 설정", "▸  세계관",
@@ -50,8 +77,25 @@ private class MockWorkspaceWidget : Container() {
     private val statusBar = MockStatusBarWidget()
 
     init {
-        listOf(topBar, toolStrip, project, editor, inspector, problems, statusBar).forEach(::addChild)
+        listOf(topBar, newProjectButton, toolStrip, project, editor, inspector, problems, statusBar).forEach(::addChild)
     }
+
+    /** Shows [created]'s folder tree in the Project pane. */
+    fun showProject(created: CreatedProject) {
+        project.title = created.project.title
+        project.sections = renderTree(created.project.tree())
+        statusBar.message = if (created.warnings.isEmpty()) "✓ 프로젝트 생성됨" else "⚠ ${created.warnings.first()}"
+        statusBar.requestRepaint()
+    }
+
+    private fun renderTree(dir: ProjectNode.Directory, depth: Int = 0): List<String> =
+        dir.children.flatMap { node ->
+            val indent = "    ".repeat(depth)
+            when (node) {
+                is ProjectNode.Directory -> listOf("$indent▾  ${node.name}") + renderTree(node, depth + 1)
+                is ProjectNode.File -> listOf("$indent    ${node.name}")
+            }
+        }
 
     override fun layout() {
         val b = bounds
@@ -68,6 +112,7 @@ private class MockWorkspaceWidget : Container() {
         val editorRight = b.x + b.width - rightWidth
 
         topBar.setBounds(b.x, b.y, b.width, topHeight)
+        newProjectButton.measure().let { newProjectButton.setBounds(b.x + 120, b.y + (topHeight - ButtonWidget.HEIGHT) / 2, it.width, ButtonWidget.HEIGHT) }
         toolStrip.setBounds(b.x, contentTop, railWidth, contentBottom - contentTop)
         project.setBounds(b.x + railWidth, contentTop, leftWidth, mainBottom - contentTop)
         editor.setBounds(editorLeft, contentTop, (editorRight - editorLeft).coerceAtLeast(1), mainBottom - contentTop)
@@ -148,9 +193,14 @@ private class MockToolStripWidget : Widget() {
 }
 
 private open class MockToolPaneWidget(
-    private val title: String,
-    private val sections: List<String>,
+    title: String,
+    sections: List<String>,
 ) : Widget() {
+    var title: String = title
+        set(value) { field = value; requestRepaint() }
+    var sections: List<String> = sections
+        set(value) { field = value; requestRepaint() }
+
     override fun onPaint(g: Graphics2D, localRegion: Rectangle) {
         g.color = theme.surface
         g.fillRect(0, 0, bounds.width, bounds.height)
@@ -251,12 +301,14 @@ private class MockProblemsWidget : Widget() {
 }
 
 private class MockStatusBarWidget : Widget() {
+    var message = "✓ 저장됨"
+
     override fun onPaint(g: Graphics2D, localRegion: Rectangle) {
         g.color = theme.primary
         g.fillRect(0, 0, bounds.width, bounds.height)
         g.font = theme.labelFont
         g.color = theme.onPrimary
-        g.drawString("✓ 저장됨", 12, 17)
+        g.drawString(message, 12, 17)
         val right = "UTF-8     한국어     1,284자"
         g.drawString(right, bounds.width - g.fontMetrics.stringWidth(right) - 14, 17)
     }

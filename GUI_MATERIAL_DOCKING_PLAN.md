@@ -100,7 +100,7 @@ Material 3의 bar/rail/pane 기반 scaffold를 데스크톱 IDE에 맞게 조밀
 | `TooltipWidget` | 아이콘 설명과 shortcut 안내 |
 | `DialogWidget`, `ModalBarrierWidget` | 확인, 설정, 충돌 해결 |
 | `SnackbarWidget`, `NotificationWidget`, `BadgeWidget` | 저장 결과, warning, 분석 완료 |
-| `ProgressIndicatorWidget` | Git/Nori/내보내기 백그라운드 작업 |
+| `ProgressIndicatorWidget` | Git/Kiwi/내보내기 백그라운드 작업 |
 | `SliderWidget` | 회차별 관계도 타임라인 |
 | `EmptyStateWidget` | 결과나 열린 문서가 없는 상태 |
 

@@ -16,8 +16,12 @@ dependencies {
     implementation("org.jctools:jctools-core:4.0.7")
     // Source: https://mvnrepository.com/artifact/net.java.dev.jna/jna
     implementation("net.java.dev.jna:jna:5.19.1")
-    // Source: https://mvnrepository.com/artifact/org.apache.lucene/lucene-analyzers-nori
-    implementation("org.apache.lucene:lucene-analyzers-nori:8.11.4")
+    // Kiwi (Korean morphological analyzer) is not published to Maven Central; its JNI binding jar
+    // (which bundles the native KiwiJava library) comes from https://github.com/bab2min/Kiwi/releases
+    // and is checked in under libs/. The language model is too large to commit - see README.md.
+    implementation(fileTree("libs") { include("*.jar") })
+    // Source: https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-serialization-json
+    implementation(libs.kotlinxSerialization)
     // Source: https://mvnrepository.com/artifact/org.eclipse.jgit/org.eclipse.jgit
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.7.1.202607240634-r")
     testImplementation(kotlin("test"))

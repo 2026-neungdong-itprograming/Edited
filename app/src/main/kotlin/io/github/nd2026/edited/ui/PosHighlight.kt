@@ -5,7 +5,7 @@ import java.awt.Color
 
 /**
  * Assigns a color per broad part-of-speech category, purely so [TextAreaWidget] can visually
- * confirm the Nori pipeline ([io.github.nd2026.edited.lexer.MorphemeIndex]) is producing real
+ * confirm the Kiwi pipeline ([io.github.nd2026.edited.lexer.MorphemeIndex]) is producing real
  * morphemes before any dedicated linter/highlighting feature exists.
  *
  * Colors are derived from [Theme.onSurface]'s brightness rather than hardcoded per-theme, so
@@ -23,15 +23,18 @@ internal object PosHighlight {
         SYMBOL(-1f),
     }
 
-    // Nori's org.apache.lucene.analysis.ko.POS.Tag names - kept as plain strings (rather than
-    // depending on the Lucene type here) since Morpheme.partOfSpeech is already just its name.
+    // Kiwi's POS tag names (Sejong-style) - kept as plain strings (rather than depending on the
+    // binding's byte constants here) since Morpheme.partOfSpeech is already just its name.
     private fun categoryOf(partOfSpeech: String): Category = when (partOfSpeech) {
-        "NNG", "NNP", "NNB", "NNBC", "NP", "NR" -> Category.NOUN
-        "VV", "VA", "VX", "VCN", "VCP", "VSV" -> Category.PREDICATE
+        "NNG", "NNP", "NNB", "NP", "NR" -> Category.NOUN
+        "VV", "VA", "VX", "VCN", "VCP" -> Category.PREDICATE
         "MM", "MAG", "MAJ" -> Category.MODIFIER
-        "J", "E", "XSN", "XSA", "XSV", "XPN", "XR" -> Category.PARTICLE
-        "SF", "SP", "SSC", "SSO", "SC", "SY", "SE" -> Category.SYMBOL
-        else -> Category.FOREIGN // SH/SL/SN/IC/UNKNOWN/UNA/NA - notably "not a plain word"
+        "XSN", "XSA", "XSV", "XSM", "XPN", "XR" -> Category.PARTICLE
+        "SF", "SP", "SS", "SSO", "SSC", "SE", "SO", "SW", "SB" -> Category.SYMBOL
+        else -> when {
+            partOfSpeech.startsWith("J") || partOfSpeech.startsWith("E") -> Category.PARTICLE // JK*/JX/JC, EP/EF/EC/ETN/ETM
+            else -> Category.FOREIGN // SH/SL/SN/IC/W_*/Z_*/UNKNOWN - notably "not a plain word"
+        }
     }
 
     fun colorFor(theme: Theme, partOfSpeech: String): Color {

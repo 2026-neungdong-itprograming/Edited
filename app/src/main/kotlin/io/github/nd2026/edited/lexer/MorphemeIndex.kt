@@ -40,7 +40,7 @@ class MorphemeIndex(
     private val listeners = CopyOnWriteArrayList<MorphemeIndexListener>()
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "nori-lexer").apply { isDaemon = true }
+        Thread(runnable, "kiwi-lexer").apply { isDaemon = true }
     }
     private val debounce = Timer(debounceMillis) { scheduleAnalysis() }.apply { isRepeats = false }
 
@@ -90,10 +90,19 @@ class MorphemeIndex(
     }
 
     private fun scheduleAnalysis() {
+        if (cache.size != textArea.lineCount) resyncCache()
         if (dirtyLines.isEmpty()) return
         val jobs = dirtyLines.filter { it in cache.indices }.map { it to textArea.lineText(it) }
         dirtyLines.clear()
         executor.submit { analyzeAndPublish(jobs) }
+    }
+
+    /** Safety net: if incremental line bookkeeping ever drifts from the document, re-analyze everything. */
+    private fun resyncCache() {
+        cache.clear()
+        repeat(textArea.lineCount) { cache.add(null) }
+        dirtyLines.clear()
+        dirtyLines.addAll(cache.indices)
     }
 
     private fun analyzeAndPublish(jobs: List<Pair<Int, String>>) {
@@ -103,7 +112,7 @@ class MorphemeIndex(
 
     private fun applyResults(results: List<Triple<Int, String, List<Morpheme>>>) {
         for ((line, snapshot, morphemes) in results) {
-            if (line !in cache.indices) continue
+            if (line !in cache.indices || line >= textArea.lineCount) continue
             if (textArea.lineText(line) != snapshot) continue
             cache[line] = morphemes
             val absolute = morphemes.shiftedBy(textArea.lineStart(line))
