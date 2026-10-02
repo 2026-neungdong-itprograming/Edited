@@ -32,3 +32,15 @@ application {
     // (Note that Kotlin compiles `App.kt` to a class with FQN `com.example.app.AppKt`.)
     mainClass = "io.github.nd2026.edited.AppKt"
 }
+
+// Input-latency / frame-time benchmark on 1M and 10M character manuscripts (see docs/EDITOR_PERFORMANCE.md).
+// Usage: ./gradlew :app:editorBenchmark            (both sizes)
+//        ./gradlew :app:editorBenchmark -Pchars=1000000
+tasks.register<JavaExec>("editorBenchmark") {
+    group = "verification"
+    description = "Measures editor input latency and frame time on large synthetic manuscripts."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass = "io.github.nd2026.edited.perf.EditorPerfKt"
+    jvmArgs("-Xmx2g", "-Djava.awt.headless=true")
+    (findProperty("chars") as String?)?.let { args(it.split(",")) }
+}

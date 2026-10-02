@@ -376,3 +376,12 @@ data class DockLayoutState(
 남은 항목: 탭 드래그 재정렬과 5방향 drop overlay, 마지막 종료 시점 외의 주기적 자동 저장.
 
 키보드 명령을 사용자에게 알리는 계획은 `KEYBOARD_COMMANDS_PLAN.md`를 참고한다. master의 `ProjectWorkspaceWidget` 구조로 바뀌면서 앱 화면에서 Dock 연결이 빠졌고, 그 재연결이 해당 계획의 첫 단계이다.
+2026-10-02 단계 E(편집기 셸) 완료:ss
+
+- `UndoManager` + `TextArea.undo/redo/compound`: 연속 입력은 단어 단위로 합쳐지고(공백·개행에서 끊김), 한글 IME 확정은 음절마다가 아니라 단어 단위로 묶이며, 선택 영역을 IME/타이핑으로 덮어쓰는 것은 한 단계로 되돌려진다. 조합 중에는 Undo가 무시된다.
+- `TextAreaWidget`: 가로 스크롤(Shift+휠, 가로 스크롤 바), 캐럿 자동 따라가기(세로/가로), 이진 탐색 기반 클릭 위치 계산
+- `GutterWidget`(문단 번호·검수 아이콘·줄 선택), `BreadcrumbWidget`(`ScopeResolver`로 작품›장›장면 경로), `InspectionStripeWidget`(스크롤 바 겸 검수 마커), `EditorPaneWidget`, `EditorGroupWidget`(Ctrl+\ 오른쪽 분할, Ctrl+Shift+\ 아래 분할, Ctrl+Shift+W 창 닫기)
+- `MorphemeIndex`: 시작 시 문서 전체를 분석하던 것을 요청된 줄만 분석하도록 변경(대용량 문서 로드 비용 제거)
+- 1M/10M 문자 성능 측정과 회귀 기준: [`docs/EDITOR_PERFORMANCE.md`](docs/EDITOR_PERFORMANCE.md)
+
+남은 단계 E 항목: 검색 필드(`SearchFieldWidget`), 다중 caret 후보. 거터의 변경 이력·Quick Fix 아이콘은 단계 F의 기능과 함께 붙인다.
