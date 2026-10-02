@@ -11,7 +11,7 @@ data class ThemeChanged(val theme: Theme) : ToolkitEvent
  * hardcoding colors/fonts. Changing [current] publishes [ThemeChanged] on [events] so attached
  * widgets can repaint themselves.
  */
-class ThemeProvider(initial: Theme = MaterialLightTheme) {
+class ThemeProvider(initial: Theme = MaterialDarkTheme) {
 
     val events = EventBus()
 
