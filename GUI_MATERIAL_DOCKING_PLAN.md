@@ -364,7 +364,19 @@ data class DockLayoutState(
 
 다음 묶음: 한국어 IME 브리지와 `DockHostWidget`/splitter/drop overlay의 실제 렌더링 연결.
 
-2026-10-02 단계 E(편집기 셸) 완료:
+2026-10-02 단계 D 마무리 (드래그 앤 드롭은 제외):
+
+- `DockHostWidget`/`DockPaneWidget`/`DockSplitterWidget`/`ToolWindowStripWidget`으로 Dock 상태를 렌더링하고, 모든 동작은 `DockCommand`로만 반영
+- hide/restore(edge strip), `FloatingDockWindow`(새 `JFrame` + `RootPane`), 플로팅 bounds 추적과 닫기 시 재도킹
+- `DockLayoutCodec`의 버전 있는 JSON 저장/복원, 손상·미지원 버전은 기본 레이아웃으로 대체, `DockLayoutReconciler`가 없는 pane 제거와 새 필수 pane 병합, `DockLayoutStore`(`~/.texted/dock-layout.json`, 원자적 저장), `Alt+Shift+R` 및 메뉴의 레이아웃 초기화
+- 키보드: F6/Shift+F6 pane 순환, Alt+Shift+방향키 이동, Ctrl+Alt+Shift+→/↓ 분할, Alt+Shift+[ ] 탭 전환, Alt+Shift+F 플로팅/도킹, Shift+Esc 숨기기, Shift+F10 메뉴
+- `DockContextMenuWidget`(키보드 조작 가능한 `ContextMenuWidget` 기반)
+- 기본 레이아웃: 좌 Project/Structure, 우 Characters/World/Graph, 하 Problems/Search/Git History
+
+남은 항목: 탭 드래그 재정렬과 5방향 drop overlay, 마지막 종료 시점 외의 주기적 자동 저장.
+
+키보드 명령을 사용자에게 알리는 계획은 `KEYBOARD_COMMANDS_PLAN.md`를 참고한다. master의 `ProjectWorkspaceWidget` 구조로 바뀌면서 앱 화면에서 Dock 연결이 빠졌고, 그 재연결이 해당 계획의 첫 단계이다.
+2026-10-02 단계 E(편집기 셸) 완료:ss
 
 - `UndoManager` + `TextArea.undo/redo/compound`: 연속 입력은 단어 단위로 합쳐지고(공백·개행에서 끊김), 한글 IME 확정은 음절마다가 아니라 단어 단위로 묶이며, 선택 영역을 IME/타이핑으로 덮어쓰는 것은 한 단계로 되돌려진다. 조합 중에는 Undo가 무시된다.
 - `TextAreaWidget`: 가로 스크롤(Shift+휠, 가로 스크롤 바), 캐럿 자동 따라가기(세로/가로), 이진 탐색 기반 클릭 위치 계산
