@@ -18,8 +18,18 @@ import java.nio.file.Paths
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
 
-fun main(args: Array<String>) = SwingUtilities.invokeLater {
-    TextedWindow(StartupProject.find(args.firstOrNull())).isVisible = true
+fun main(args: Array<String>) {
+    // HiDPI 스케일링 활성화
+    System.setProperty("sun.java2d.uiScale", "1.0") // 또는 OS 비율 자동 감지: null 처리
+    System.setProperty("prism.allowhidpi", "true")
+
+    // 텍스트 렌더링 힌트 설정 (ClearType / 안티앨리어싱)
+    System.setProperty("awt.useSystemAAFontSettings", "on") // 또는 "lcd"
+    System.setProperty("swing.aatext", "true")
+
+    SwingUtilities.invokeLater {
+        TextedWindow(StartupProject.find(args.firstOrNull())).isVisible = true
+    }
 }
 
 /** The only Swing window. All application UI below it is rendered by the custom widget tree. */

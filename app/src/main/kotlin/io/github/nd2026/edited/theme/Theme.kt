@@ -28,6 +28,8 @@ data class Theme(
     // Elevation: Java2D has no real shadow rendering here, so elevation is approximated as an
     // alpha overlay tint per level (index 0 = resting surface, higher = more "raised").
     val elevationTints: List<Color> = defaultElevationTints(primary),
+    /** Warning role for inspections and gutter/stripe markers (Material has no built-in one). */
+    val warning: Color = Color(0xE6, 0x8A, 0x00),
 ) {
     companion object {
         /** Material's elevation overlay: an alpha wash of [primary] over the surface, one entry per elevation level. */

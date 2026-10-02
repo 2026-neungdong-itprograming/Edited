@@ -46,8 +46,6 @@ class MorphemeIndex(
 
     init {
         textArea.addListener(this)
-        for (line in cache.indices) dirtyLines += line
-        scheduleAnalysis()
     }
 
     fun addListener(listener: MorphemeIndexListener) {
@@ -60,8 +58,20 @@ class MorphemeIndex(
 
     /** Morphemes for [line] shifted to current absolute document offsets, or null if [line]
      *  hasn't been analyzed yet (e.g. it was just edited and the debounce hasn't fired). */
-    fun morphemesForLine(line: Int): List<Morpheme>? =
-        cache.getOrNull(line)?.shiftedBy(textArea.lineStart(line))
+    fun morphemesForLine(line: Int): List<Morpheme>? {
+        val cached = cache.getOrNull(line)
+        if (cached == null) {
+            requestLine(line)
+            return null
+        }
+        return cached.shiftedBy(textArea.lineStart(line))
+    }
+
+    /** Analyzes [line] on demand; lines nobody asks about are never tokenized (matters for 10M-char manuscripts). */
+    private fun requestLine(line: Int) {
+        if (line !in cache.indices || !dirtyLines.add(line)) return
+        debounce.restart()
+    }
 
     override fun onTextChanged(edit: TextEdit) {
         when (edit) {
@@ -97,12 +107,11 @@ class MorphemeIndex(
         executor.submit { analyzeAndPublish(jobs) }
     }
 
-    /** Safety net: if incremental line bookkeeping ever drifts from the document, re-analyze everything. */
+    /** Safety net: if incremental line bookkeeping ever drifts from the document, drop the cache (lines re-analyze on demand). */
     private fun resyncCache() {
         cache.clear()
         repeat(textArea.lineCount) { cache.add(null) }
         dirtyLines.clear()
-        dirtyLines.addAll(cache.indices)
     }
 
     private fun analyzeAndPublish(jobs: List<Pair<Int, String>>) {
