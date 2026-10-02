@@ -81,8 +81,18 @@ class DockPaneWidget(
         content?.setBounds(b.x + 1, b.y + HEADER_HEIGHT, (b.width - 2).coerceAtLeast(1), (b.height - HEADER_HEIGHT - 1).coerceAtLeast(1))
     }
 
-    /** Tab rectangles in widget-local coordinates, measured without a Graphics context. */
+    /**
+     * Tab rectangles in widget-local coordinates, measured without a Graphics context. Tabs that
+     * would run under the header buttons are left out; they stay reachable with Alt+Shift+[ / ].
+     */
     fun tabRects(): List<Pair<PaneId, Rectangle>> {
+        val limit = bounds.width - visibleButtonCount() * BUTTON_SIZE - 8
+        return allTabRects().filter { it.second.x + it.second.width <= limit || it.first == group.active }
+    }
+
+    private fun visibleButtonCount() = listOf(menuButton, dockButton, hideButton).count { it.visible }
+
+    private fun allTabRects(): List<Pair<PaneId, Rectangle>> {
         val font = theme.labelFont
         var x = 4
         return group.paneIds.map { id ->
@@ -102,9 +112,7 @@ class DockPaneWidget(
         g.font = theme.labelFont
         val metrics = g.fontMetrics
         val baseline = (HEADER_HEIGHT + metrics.ascent - metrics.descent) / 2
-        val tabLimit = bounds.width - BUTTON_SIZE * 3 - 8
         for ((id, rect) in tabRects()) {
-            if (rect.x >= tabLimit) break
             val active = id == group.active
             if (active) {
                 g.color = if (focused) theme.primary else theme.outline
