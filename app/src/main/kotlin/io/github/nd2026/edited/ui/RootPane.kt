@@ -6,6 +6,7 @@ import io.github.nd2026.edited.render.Surface
 import io.github.nd2026.edited.theme.ThemeProvider
 import java.awt.Graphics
 import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.KeyAdapter
@@ -192,6 +193,11 @@ class RootPane : JComponent() {
         surface.resize(width.coerceAtLeast(1), height.coerceAtLeast(1))
         val sg = surface.graphics()
         try {
+            sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            sg.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+            sg.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+            sg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            sg.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
             sg.clip = region
             content?.paint(sg, region)
         } finally {

@@ -374,3 +374,5 @@ data class DockLayoutState(
 - 기본 레이아웃: 좌 Project/Structure, 우 Characters/World/Graph, 하 Problems/Search/Git History
 
 남은 항목: 탭 드래그 재정렬과 5방향 drop overlay, 마지막 종료 시점 외의 주기적 자동 저장.
+
+키보드 명령을 사용자에게 알리는 계획은 `KEYBOARD_COMMANDS_PLAN.md`를 참고한다. master의 `ProjectWorkspaceWidget` 구조로 바뀌면서 앱 화면에서 Dock 연결이 빠졌고, 그 재연결이 해당 계획의 첫 단계이다.
