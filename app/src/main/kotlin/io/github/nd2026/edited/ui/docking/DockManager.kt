@@ -1,16 +1,28 @@
 package io.github.nd2026.edited.ui.docking
 
+import java.awt.Rectangle
+
 /** Applies docking commands to a UI-independent tree and enforces its invariants. */
 class DockManager(initialState: DockLayoutState = DockLayoutState()) {
     var state: DockLayoutState = initialState
         private set
 
+    private val listeners = mutableListOf<(DockLayoutState) -> Unit>()
+
+    /** Registers [listener] for every committed state change; returns an unsubscribe function. */
+    fun addListener(listener: (DockLayoutState) -> Unit): () -> Unit {
+        listeners += listener
+        return { listeners -= listener }
+    }
+
     init {
         validate(state)
     }
 
+    /** Applies [command] atomically: on failure the previous state is kept and the error rethrown. */
     fun apply(command: DockCommand): DockLayoutState {
-        state = when (command) {
+        val previous = state
+        val next = when (command) {
             is DockCommand.MovePane -> move(command)
             is DockCommand.HidePane -> hide(command)
             is DockCommand.RestorePane -> restore(command)
@@ -22,11 +34,47 @@ class DockManager(initialState: DockLayoutState = DockLayoutState()) {
             )
             is DockCommand.FocusPane -> {
                 require(command.paneId == null || command.paneId in state.allPaneIds()) { "unknown pane: ${command.paneId}" }
-                state.copy(focusedPane = command.paneId)
+                state.copy(
+                    root = command.paneId?.let { activate(state.root, it) } ?: state.root,
+                    focusedPane = command.paneId,
+                )
             }
+            is DockCommand.SetFloatingBounds -> {
+                require(state.floating.any { it.paneId == command.paneId }) { "pane is not floating: ${command.paneId}" }
+                require(command.bounds.width > 0 && command.bounds.height > 0) { "floating bounds must be non-empty" }
+                state.copy(floating = state.floating.map {
+                    if (it.paneId == command.paneId) it.copy(bounds = Rectangle(command.bounds)) else it
+                })
+            }
+            is DockCommand.DockToEdge -> dockToEdge(command)
+            is DockCommand.ReplaceLayout -> command.state
         }
-        validate(state)
+        validate(next)
+        if (next == previous) return state
+        state = next
+        listeners.toList().forEach { it(next) }
         return state
+    }
+
+    private fun activate(node: DockNode, paneId: PaneId): DockNode = when (node) {
+        DockNode.Empty -> node
+        is DockNode.Tabs -> if (paneId in node.paneIds) node.copy(active = paneId) else node
+        is DockNode.Split -> node.copy(first = activate(node.first, paneId), second = activate(node.second, paneId))
+    }
+
+    private fun dockToEdge(command: DockCommand.DockToEdge): DockLayoutState {
+        require(command.paneId in state.allPaneIds()) { "unknown pane: ${command.paneId}" }
+        val ratio = command.ratio.coerceIn(MIN_RATIO, MAX_RATIO)
+        val removed = removeEverywhere(state, command.paneId)
+        val pane = DockNode.Tabs(listOf(command.paneId))
+        val root = when {
+            removed.root == DockNode.Empty -> pane
+            command.edge == DockEdge.LEFT -> DockNode.Split(Axis.HORIZONTAL, ratio, pane, removed.root)
+            command.edge == DockEdge.RIGHT -> DockNode.Split(Axis.HORIZONTAL, 1f - ratio, removed.root, pane)
+            command.edge == DockEdge.TOP -> DockNode.Split(Axis.VERTICAL, ratio, pane, removed.root)
+            else -> DockNode.Split(Axis.VERTICAL, 1f - ratio, removed.root, pane)
+        }
+        return removed.copy(root = root, focusedPane = command.paneId)
     }
 
     private fun move(command: DockCommand.MovePane): DockLayoutState {
@@ -77,7 +125,7 @@ class DockManager(initialState: DockLayoutState = DockLayoutState()) {
         require(command.bounds.width > 0 && command.bounds.height > 0) { "floating bounds must be non-empty" }
         val removed = removeEverywhere(state, command.paneId)
         return removed.copy(
-            floating = removed.floating + FloatingPaneState(command.paneId, command.bounds),
+            floating = removed.floating + FloatingPaneState(command.paneId, Rectangle(command.bounds)),
             focusedPane = command.paneId,
         )
     }
@@ -158,11 +206,20 @@ class DockManager(initialState: DockLayoutState = DockLayoutState()) {
         val panes = state.allPaneIds()
         require(panes.distinct().size == panes.size) { "each pane must occur exactly once" }
         require(state.focusedPane == null || state.focusedPane in panes) { "focused pane must exist" }
+        require(state.floating.all { it.bounds.width > 0 && it.bounds.height > 0 }) { "floating bounds must be non-empty" }
+        validateRatios(state.root)
+    }
+
+    private fun validateRatios(node: DockNode) {
+        if (node !is DockNode.Split) return
+        require(node.first != DockNode.Empty && node.second != DockNode.Empty) { "a split must not contain an empty side" }
+        validateRatios(node.first)
+        validateRatios(node.second)
     }
 
     companion object {
         private const val DEFAULT_RATIO = 0.3f
-        private const val MIN_RATIO = 0.05f
-        private const val MAX_RATIO = 0.95f
+        const val MIN_RATIO = 0.05f
+        const val MAX_RATIO = 0.95f
     }
 }

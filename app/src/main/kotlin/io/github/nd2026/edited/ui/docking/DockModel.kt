@@ -74,9 +74,19 @@ sealed interface DockCommand {
     ) : DockCommand
 
     data class FloatPane(val paneId: PaneId, val bounds: Rectangle) : DockCommand
+
+    /** Updates a floating pane's screen bounds after its window was moved or resized. */
+    data class SetFloatingBounds(val paneId: PaneId, val bounds: Rectangle) : DockCommand
+
+    /** Docks [paneId] (from anywhere) along an outer [edge] of the main layout. */
+    data class DockToEdge(val paneId: PaneId, val edge: DockEdge, val ratio: Float = 0.25f) : DockCommand
     data class ClosePane(val paneId: PaneId) : DockCommand
     data class ResizeSplit(val path: List<Int>, val ratio: Float) : DockCommand
+    /** Focuses [paneId] and, when it is docked, makes it the active tab of its group. */
     data class FocusPane(val paneId: PaneId?) : DockCommand
+
+    /** Replaces the whole layout, e.g. when restoring a saved layout or resetting to the default. */
+    data class ReplaceLayout(val state: DockLayoutState) : DockCommand
 }
 
 fun DockNode.paneIds(): List<PaneId> = when (this) {
@@ -84,6 +94,24 @@ fun DockNode.paneIds(): List<PaneId> = when (this) {
     is DockNode.Tabs -> paneIds
     is DockNode.Split -> first.paneIds() + second.paneIds()
 }
+
+/** The tab group that contains [paneId], or null when it is not docked. */
+fun DockNode.tabsOf(paneId: PaneId): DockNode.Tabs? = when (this) {
+    DockNode.Empty -> null
+    is DockNode.Tabs -> takeIf { paneId in paneIds }
+    is DockNode.Split -> first.tabsOf(paneId) ?: second.tabsOf(paneId)
+}
+
+/** All tab groups in visual order (first before second). */
+fun DockNode.tabGroups(): List<DockNode.Tabs> = when (this) {
+    DockNode.Empty -> emptyList()
+    is DockNode.Tabs -> listOf(this)
+    is DockNode.Split -> first.tabGroups() + second.tabGroups()
+}
+
+/** The edge [paneId] is hidden at, or null when it is not hidden. */
+fun DockLayoutState.hiddenEdgeOf(paneId: PaneId): DockEdge? =
+    hidden.entries.firstOrNull { paneId in it.value }?.key
 
 fun DockLayoutState.allPaneIds(): List<PaneId> =
     root.paneIds() + hidden.values.flatten() + floating.map { it.paneId }

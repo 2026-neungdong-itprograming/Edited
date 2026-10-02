@@ -96,6 +96,15 @@ abstract class Widget : Painter {
         child.onAttach()
     }
 
+    /** Like [addChild], but inserts at [index]; earlier children paint below and hit-test after later ones. */
+    fun insertChild(index: Int, child: Widget) {
+        require(child.parent == null) { "widget already has a parent" }
+        children.add(index.coerceIn(0, children.size), child)
+        child.parent = this
+        child.propagateHostPane(hostPane)
+        child.onAttach()
+    }
+
     fun removeChild(child: Widget) {
         if (children.remove(child)) {
             child.onDetach()

@@ -363,3 +363,14 @@ data class DockLayoutState(
 - Swing import 경계, pointer capture, focus traversal, Dock 불변식에 대한 자동 테스트 8개
 
 다음 묶음: 한국어 IME 브리지와 `DockHostWidget`/splitter/drop overlay의 실제 렌더링 연결.
+
+2026-10-02 단계 D 마무리 (드래그 앤 드롭은 제외):
+
+- `DockHostWidget`/`DockPaneWidget`/`DockSplitterWidget`/`ToolWindowStripWidget`으로 Dock 상태를 렌더링하고, 모든 동작은 `DockCommand`로만 반영
+- hide/restore(edge strip), `FloatingDockWindow`(새 `JFrame` + `RootPane`), 플로팅 bounds 추적과 닫기 시 재도킹
+- `DockLayoutCodec`의 버전 있는 JSON 저장/복원, 손상·미지원 버전은 기본 레이아웃으로 대체, `DockLayoutReconciler`가 없는 pane 제거와 새 필수 pane 병합, `DockLayoutStore`(`~/.texted/dock-layout.json`, 원자적 저장), `Alt+Shift+R` 및 메뉴의 레이아웃 초기화
+- 키보드: F6/Shift+F6 pane 순환, Alt+Shift+방향키 이동, Ctrl+Alt+Shift+→/↓ 분할, Alt+Shift+[ ] 탭 전환, Alt+Shift+F 플로팅/도킹, Shift+Esc 숨기기, Shift+F10 메뉴
+- `DockContextMenuWidget`(키보드 조작 가능한 `ContextMenuWidget` 기반)
+- 기본 레이아웃: 좌 Project/Structure, 우 Characters/World/Graph, 하 Problems/Search/Git History
+
+남은 항목: 탭 드래그 재정렬과 5방향 drop overlay, 마지막 종료 시점 외의 주기적 자동 저장.
