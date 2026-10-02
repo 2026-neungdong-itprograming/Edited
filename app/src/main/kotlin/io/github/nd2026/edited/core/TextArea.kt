@@ -48,34 +48,112 @@ class TextArea(private val buffer: TextBuffer = GapBufferTextBuffer()) : AutoClo
 
     fun snapshot(): String = buffer.subSequence(0, buffer.length)
 
-    fun insert(offset: Int, text: String) {
+    private val history = UndoManager()
+
+    val canUndo: Boolean get() = history.canUndo
+    val canRedo: Boolean get() = history.canRedo
+
+    /**
+     * Inserts [text] at [offset] and moves the caret after it. With [coalesce] the edit may merge
+     * into the previous undo step (typing); leave it false for paste and programmatic edits.
+     */
+    fun insert(offset: Int, text: String, coalesce: Boolean = false) {
         if (text.isEmpty()) return
+        val caretBefore = caret
         buffer.insert(offset, text)
         moveCaretTo(offset + text.length)
         notifyChanged(TextEdit.Insert(offset, text))
+        history.record(TextEdit.Insert(offset, text), caretBefore, caret, coalesce)
     }
 
-    fun delete(start: Int, end: Int) {
+    fun delete(start: Int, end: Int, coalesce: Boolean = false) {
         if (start == end) return
+        val caretBefore = caret
         val removed = buffer.subSequence(start, end)
         buffer.delete(start, end)
         moveCaretTo(start)
         notifyChanged(TextEdit.Delete(start, end, removed))
+        history.record(TextEdit.Delete(start, end, removed), caretBefore, caret, coalesce)
     }
 
-    fun replace(start: Int, end: Int, text: String) {
+    /** Replacing is one undo step: the delete and the insert revert together. */
+    fun replace(start: Int, end: Int, text: String) = compound {
         if (start != end) delete(start, end)
         if (text.isNotEmpty()) insert(start, text)
     }
 
-    fun typeAtCaret(text: String) {
-        val selection = selectionRange()
+    /**
+     * Types [text] over the selection, or at the caret. Pass `coalesce = true` for keyboard and IME
+     * input so a run of typing undoes as one step; a selection replaced this way is always its own step.
+     */
+    fun typeAtCaret(text: String, coalesce: Boolean = false) {
+        val selection = selectionRange()?.takeUnless(IntRange::isEmpty)
         if (selection != null) {
             replace(selection.first, selection.last + 1, text)
         } else {
-            insert(caret, text)
+            insert(caret, text, coalesce)
         }
         clearSelection()
+    }
+
+    /** Every edit made inside [block] reverts and re-applies as a single undo step. */
+    fun <T> compound(block: () -> T): T {
+        history.beginGroup(caret)
+        try {
+            return block()
+        } finally {
+            history.endGroup(caret)
+        }
+    }
+
+    /** Ends the current typing run, so the next keystroke starts a fresh undo step. */
+    fun breakUndoGroup() = history.breakCoalescing()
+
+    fun clearHistory() = history.clear()
+
+    fun undo(): Boolean {
+        val entry = history.takeUndo() ?: return false
+        for (i in entry.edits.indices.reversed()) {
+            when (val edit = entry.edits[i]) {
+                is TextEdit.Insert -> applyDelete(edit.offset, edit.offset + edit.text.length)
+                is TextEdit.Delete -> applyInsert(edit.start, edit.removedText)
+            }
+        }
+        restoreCaret(entry.caretBefore)
+        return true
+    }
+
+    fun redo(): Boolean {
+        val entry = history.takeRedo() ?: return false
+        for (edit in entry.edits) {
+            when (edit) {
+                is TextEdit.Insert -> applyInsert(edit.offset, edit.text)
+                is TextEdit.Delete -> applyDelete(edit.start, edit.end)
+            }
+        }
+        restoreCaret(entry.caretAfter)
+        return true
+    }
+
+    private fun applyInsert(offset: Int, text: String) {
+        buffer.insert(offset, text)
+        notifyChanged(TextEdit.Insert(offset, text))
+    }
+
+    private fun applyDelete(start: Int, end: Int): String {
+        val removed = buffer.subSequence(start, end)
+        buffer.delete(start, end)
+        // Keep the caret/anchor inside the document while an undo is still mid-way through its edits.
+        if (caret > length) caret = length
+        if ((selectionAnchor ?: 0) > length) selectionAnchor = length
+        notifyChanged(TextEdit.Delete(start, end, removed))
+        return removed
+    }
+
+    private fun restoreCaret(offset: Int) {
+        val hadSelection = selectionAnchor != null
+        moveCaretTo(offset)
+        if (hadSelection) for (l in listeners) l.onSelectionChanged(null)
     }
 
     fun moveCaretTo(offset: Int, extendSelection: Boolean = false) {

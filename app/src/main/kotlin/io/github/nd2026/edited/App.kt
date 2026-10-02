@@ -1,5 +1,7 @@
 package io.github.nd2026.edited
 
+import io.github.nd2026.edited.core.Inspection
+import io.github.nd2026.edited.core.Severity
 import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.event.InputEvent
 import io.github.nd2026.edited.project.CreatedProject
@@ -12,11 +14,11 @@ import io.github.nd2026.edited.ui.KeyStroke
 import io.github.nd2026.edited.ui.NewProjectDialog
 import io.github.nd2026.edited.ui.OverlayHostWidget
 import io.github.nd2026.edited.ui.RootPane
-import io.github.nd2026.edited.ui.TextAreaWidget
 import io.github.nd2026.edited.ui.Widget
 import io.github.nd2026.edited.ui.components.ButtonWidget
-import io.github.nd2026.edited.ui.components.TabBarWidget
-import io.github.nd2026.edited.ui.components.TabItem
+import io.github.nd2026.edited.ui.docking.Axis
+import io.github.nd2026.edited.ui.editor.EditorDocument
+import io.github.nd2026.edited.ui.editor.EditorGroupWidget
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics2D
@@ -50,9 +52,17 @@ class Main : JFrame() {
         workspace.onNewProject = newProject
         contentPane.add(RootPane().apply {
             content = host
+            val menuMask = Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
+            keymap.bind(KeyStroke(KeyEvent.VK_N, menuMask), Command { newProject(); true })
+            // Split editor: Ctrl+\ right, Ctrl+Shift+\ down, Ctrl+Shift+W closes the active pane.
+            keymap.bind(KeyStroke(KeyEvent.VK_BACK_SLASH, menuMask), Command { workspace.splitEditor(Axis.HORIZONTAL) })
             keymap.bind(
-                KeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx),
-                Command { newProject(); true },
+                KeyStroke(KeyEvent.VK_BACK_SLASH, menuMask or KeyEvent.SHIFT_DOWN_MASK),
+                Command { workspace.splitEditor(Axis.VERTICAL) },
+            )
+            keymap.bind(
+                KeyStroke(KeyEvent.VK_W, menuMask or KeyEvent.SHIFT_DOWN_MASK),
+                Command { workspace.closeEditorPane() },
             )
         })
     }
@@ -68,7 +78,16 @@ private class MockWorkspaceWidget : Container() {
         "▾  달빛 아래의 계약", "    01. 낯선 손님.md", "    02. 깨진 약속.md",
         "    03. 귀환.md", "▸  인물 설정", "▸  세계관",
     ))
-    private val editor = MockEditorPaneWidget()
+    private val editor = EditorGroupWidget().apply {
+        val first = EditorDocument("chapter-1", "01. 낯선 손님.md", TextArea(CHAPTER_ONE))
+        first.inspections.set(listOf(
+            Inspection(5, Severity.WARNING, "동일 어미 ‘-었다’ 반복"),
+            Inspection(9, Severity.ERROR, "설정 충돌: 윤서진은 이 열쇠를 본 적이 없습니다."),
+            Inspection(13, Severity.INFO, "회수되지 않은 복선: 은빛 열쇠"),
+        ))
+        open(EditorDocument("chapter-2", "02. 깨진 약속.md", TextArea(CHAPTER_TWO)))
+        open(first)
+    }
     private val inspector = MockToolPaneWidget("Characters", listOf(
         "윤서진", "  상태   생존", "  위치   북부 관문", "  감정   경계 72", "",
         "관계", "  한도윤  동료 → 의심", "  이채린  미확인",
@@ -79,6 +98,10 @@ private class MockWorkspaceWidget : Container() {
     init {
         listOf(topBar, newProjectButton, toolStrip, project, editor, inspector, problems, statusBar).forEach(::addChild)
     }
+
+    fun splitEditor(axis: Axis) = editor.split(axis)
+
+    fun closeEditorPane() = editor.closeActivePane()
 
     /** Shows [created]'s folder tree in the Project pane. */
     fun showProject(created: CreatedProject) {
@@ -219,55 +242,6 @@ private open class MockToolPaneWidget(
             g.drawString(line, 14, y)
             y += 25
         }
-    }
-}
-
-private class MockEditorPaneWidget : Container() {
-    private val documents = linkedMapOf(
-        "chapter-1" to TextAreaWidget(TextArea(CHAPTER_ONE)),
-        "chapter-2" to TextAreaWidget(TextArea(CHAPTER_TWO)),
-    )
-    private val tabs = TabBarWidget(listOf(
-        TabItem("chapter-1", "01. 낯선 손님.md"),
-        TabItem("chapter-2", "02. 깨진 약속.md"),
-    ))
-    private var activeEditor = documents.getValue("chapter-1")
-
-    init {
-        addChild(tabs)
-        addChild(activeEditor)
-        tabs.onSelect = ::selectDocument
-        tabs.onClose = ::closeDocument
-    }
-
-    override fun layout() {
-        val b = bounds
-        tabs.setBounds(b.x, b.y, b.width, 40)
-        activeEditor.setBounds(b.x, b.y + 40, b.width, (b.height - 40).coerceAtLeast(1))
-    }
-
-    override fun onPaint(g: Graphics2D, localRegion: Rectangle) {
-        g.color = theme.surface
-        g.fillRect(0, 0, bounds.width, bounds.height)
-        g.color = theme.outline
-        g.drawRect(0, 0, bounds.width - 1, bounds.height - 1)
-    }
-
-    private fun selectDocument(id: String) {
-        val next = documents[id] ?: return
-        if (next === activeEditor) return
-        removeChild(activeEditor)
-        activeEditor = next
-        addChild(activeEditor)
-        layout()
-        requestRepaint()
-    }
-
-    private fun closeDocument(id: String) {
-        if (documents.size <= 1) return
-        val removed = documents.remove(id) ?: return
-        tabs.tabs = tabs.tabs.filterNot { it.id == id }
-        if (removed === activeEditor) selectDocument(tabs.selectedId ?: return)
     }
 }
 
