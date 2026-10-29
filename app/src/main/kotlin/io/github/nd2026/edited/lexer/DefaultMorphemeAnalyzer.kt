@@ -2,6 +2,7 @@ package io.github.nd2026.edited.lexer
 
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.util.concurrent.Executors
 
 /**
  * Process-wide [MorphemeAnalyzer] that every [io.github.nd2026.edited.core.TextArea] editor uses
@@ -17,17 +18,44 @@ object DefaultMorphemeAnalyzer : MorphemeAnalyzer {
     /** The author's local dictionary, read from the working directory if present. */
     private const val USER_DICTIONARY = "custom-rules.json"
 
+    private val dictionaryWords: List<KiwiMorphemeAnalyzer.UserWord> by lazy {
+        val dictionary = Paths.get(USER_DICTIONARY)
+        if (Files.isRegularFile(dictionary)) runCatching { UserDictionaryLoader.load(dictionary) }.getOrDefault(emptyList()) else emptyList()
+    }
+
     private val delegate: KiwiMorphemeAnalyzer? by lazy {
         try {
-            val dictionary = Paths.get(USER_DICTIONARY)
-            val words = if (Files.isRegularFile(dictionary)) UserDictionaryLoader.load(dictionary) else emptyList()
-            KiwiMorphemeAnalyzer(userWords = words)
+            KiwiMorphemeAnalyzer(userWords = dictionaryWords)
         } catch (e: Throwable) {
             System.err.println("Kiwi morpheme analysis disabled: ${e.message ?: e}")
             null
         }
     }
 
+    /** Rebuilds Kiwi off the calling thread; one at a time, in order. */
+    private val reloader = Executors.newSingleThreadExecutor { Thread(it, "kiwi-dictionary").apply { isDaemon = true } }
+
+    @Volatile
+    private var projectWords: Set<String> = emptySet()
+
+    /** True once Kiwi is loaded; loads it (blocking) on first access. */
+    val isAvailable: Boolean get() = delegate != null
+
     override fun analyze(text: String, baseOffset: Int): List<Morpheme> =
         delegate?.analyze(text, baseOffset) ?: emptyList()
+
+    /**
+     * Registers the open project's names (characters and their aliases) as proper nouns, so Kiwi
+     * reads "하늘이 웃었다" as 하늘/NNP rather than the common noun. Rebuilds Kiwi in the background,
+     * and only when the set of names actually changed.
+     */
+    fun setProjectWords(names: Collection<String>) {
+        val next = names.map(String::trim).filter { it.isNotEmpty() && ' ' !in it }.toSet()
+        if (next == projectWords) return
+        projectWords = next
+        reloader.execute {
+            val words = dictionaryWords + next.map { KiwiMorphemeAnalyzer.UserWord(it, "NNP", 10f) }
+            runCatching { delegate?.reload(words) }.onFailure { System.err.println("Kiwi dictionary reload failed: ${it.message}") }
+        }
+    }
 }
