@@ -31,6 +31,18 @@ data class Theme(
     /** Warning role for inspections and gutter/stripe markers (Material has no built-in one). */
     val warning: Color = Color(0xE6, 0x8A, 0x00),
 ) {
+    /** True for dark schemes (judged by the background's luminance, not the name). */
+    val isDark: Boolean
+        get() = (background.red * 299 + background.green * 587 + background.blue * 114) / 1000 < 128
+
+    /** Quiet colour for borders and dividers: [outline] blended 35 % over [background]. */
+    val separator: Color
+        get() = Color(
+            (background.red + (outline.red - background.red) * 0.35f).toInt(),
+            (background.green + (outline.green - background.green) * 0.35f).toInt(),
+            (background.blue + (outline.blue - background.blue) * 0.35f).toInt(),
+        )
+
     companion object {
         /** Material's elevation overlay: an alpha wash of [primary] over the surface, one entry per elevation level. */
         private fun defaultElevationTints(primary: Color): List<Color> =

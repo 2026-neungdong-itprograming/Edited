@@ -41,25 +41,32 @@ class IconButtonWidget(
     override fun onMeasure(constraints: Constraints): IntSize =
         constraints.constrain(IntSize(diameter, diameter))
 
+    private val feedback = PressFeedback { requestRepaint() }
+
+    /** Focus that came from a click: like Windows, only keyboard focus shows the focus ring. */
+    private var pointerFocus = false
+
     override fun onPaint(g: Graphics2D, localRegion: Rectangle) {
-        val stateAlpha = when {
-            !enabled -> 0
-            pressed -> 31
-            focused -> 31
-            hovered -> 20
-            else -> 0
+        if (!focused) pointerFocus = false
+        feedback.update(enabled && hovered, enabled && pressed)
+        if (enabled) {
+            feedback.subtleFill(theme)?.let {
+                g.color = it
+                g.fillRoundRect(0, 0, bounds.width, bounds.height, PressFeedback.CORNER_ARC, PressFeedback.CORNER_ARC)
+            }
         }
-        if (stateAlpha > 0) {
-            g.color = theme.onSurface.withAlpha(stateAlpha)
-            g.fillOval(0, 0, bounds.width, bounds.height)
+        if (focused && enabled && !pointerFocus) {
+            g.color = theme.onSurface
+            g.stroke = BasicStroke(2f)
+            g.drawRoundRect(1, 1, bounds.width - 3, bounds.height - 3, PressFeedback.CORNER_ARC, PressFeedback.CORNER_ARC)
         }
-        g.color = if (enabled) theme.onSurface else theme.onSurface.withAlpha(97)
+        g.color = if (enabled) feedback.content(theme.onSurface) else theme.onSurface.withAlpha(97)
         val iconSize = minOf(24, bounds.width, bounds.height)
         icon.paint(g, (bounds.width - iconSize) / 2, (bounds.height - iconSize) / 2, iconSize)
     }
 
     override fun onMouseEvent(event: InputEvent.MouseInput): Boolean = when (event) {
-        is InputEvent.MousePressed -> enabled
+        is InputEvent.MousePressed -> { pointerFocus = true; enabled }
         is InputEvent.MouseReleased -> {
             if (pressed && bounds.contains(event.x, event.y)) onClick()
             true

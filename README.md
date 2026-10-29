@@ -86,8 +86,11 @@
 
 Kiwi는 Maven Central에 없으므로 JNI 바인딩 jar(`kiwi-java-*-win-x64.jar`, 네이티브 `KiwiJava.dll` 포함)를 `app/libs/`에 두었고, 용량이 큰 언어 모델은 저장소에 포함하지 않는다.
 
-1. [Kiwi Releases](https://github.com/bab2min/Kiwi/releases)에서 `kiwi_model_v0.24.0_base.tgz`를 받는다.
-2. `app/models/` 아래에 풀어 `app/models/cong/base/cong.mdl` 등이 놓이게 한다.
-3. 다른 위치를 쓰려면 `-Dkiwi.model=<경로>` 또는 환경변수 `KIWI_MODEL`을 지정한다.
+모델은 처음 쓸 때 자동으로 받는다. [Kiwi Releases](https://github.com/bab2min/Kiwi/releases)의 `kiwi_model_v0.24.0_base.tgz`(약 88MB)를 내려받아 사용자 캐시에 풀어 두고 다음부터 재사용한다.
+
+- Windows: `%LOCALAPPDATA%\Texted\kiwi\v0.24.0\models\cong\base`
+- 그 밖의 OS: `~/.texted/kiwi/v0.24.0/models/cong/base`
+- 캐시 위치를 바꾸려면 `-Dkiwi.model.cache=<경로>` 또는 환경변수 `KIWI_MODEL_CACHE`를 지정한다.
+- 이미 받아 둔 모델을 쓰려면 `app/models/cong/base/`에 풀어 두거나 `-Dkiwi.model=<경로>` / `KIWI_MODEL`을 지정한다. 이 경우 다운로드하지 않는다.
 
 다른 OS는 해당 플랫폼의 `kiwi-java-*.jar`로 교체한다.

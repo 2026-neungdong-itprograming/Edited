@@ -97,13 +97,17 @@ class KiwiMorphemeAnalyzer(
             return index.toByte()
         }
 
+        /**
+         * An explicitly configured model, else a locally unpacked one, else the per-user cache,
+         * which [KiwiModelDownloader] fills on first use (so this can block on a download).
+         */
         fun defaultModelDir(): Path {
             val configured = System.getProperty(MODEL_PROPERTY) ?: System.getenv("KIWI_MODEL")
             if (configured != null) return Paths.get(configured)
             return listOf("models/cong/base", "app/models/cong/base")
                 .map(Paths::get)
                 .firstOrNull(Files::isDirectory)
-                ?: Paths.get("models/cong/base")
+                ?: KiwiModelDownloader.ensure()
         }
     }
 }

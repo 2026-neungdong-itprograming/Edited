@@ -43,42 +43,42 @@ class ButtonWidget(
         return constraints.constrain(IntSize(ceil(textWidth).toInt() + 2 * HORIZONTAL_PADDING, HEIGHT))
     }
 
+    private val feedback = PressFeedback { requestRepaint() }
+
+    /** Focus that came from a click: like Windows, only keyboard focus shows the focus ring. */
+    private var pointerFocus = false
+
     override fun onPaint(g: Graphics2D, localRegion: Rectangle) {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        val arc = bounds.height
+        if (!focused) pointerFocus = false
+        feedback.update(enabled && hovered, enabled && pressed)
+        val arc = PressFeedback.CORNER_ARC
         val filled = style == Style.FILLED
-        val contentColor = when {
-            !enabled -> theme.onSurface.withAlpha(97)
-            filled -> theme.onPrimary
-            else -> theme.primary
-        }
         if (filled) {
-            g.color = if (enabled) theme.primary else theme.onSurface.withAlpha(31)
+            // Accent button: 90 % opacity on hover, 80 % while pressed (AccentFillColorSecondary/Tertiary).
+            val opacity = 1f - .1f * feedback.hoverAmount - .1f * feedback.pressAmount
+            g.color = if (enabled) theme.primary.withAlpha((255 * opacity).toInt()) else theme.onSurface.withAlpha(31)
             g.fillRoundRect(0, 0, bounds.width, bounds.height, arc, arc)
+        } else if (enabled) {
+            feedback.subtleFill(theme)?.let { g.color = it; g.fillRoundRect(0, 0, bounds.width, bounds.height, arc, arc) }
         }
-        val stateAlpha = when {
-            !enabled -> 0
-            pressed || focused -> 31
-            hovered -> 20
-            else -> 0
-        }
-        if (stateAlpha > 0) {
-            g.color = (if (filled) theme.onPrimary else theme.primary).withAlpha(stateAlpha)
-            g.fillRoundRect(0, 0, bounds.width, bounds.height, arc, arc)
-        }
-        if (focused && enabled) {
-            g.color = theme.primary
+        if (focused && enabled && !pointerFocus) {
+            g.color = theme.onSurface
             g.stroke = BasicStroke(2f)
             g.drawRoundRect(1, 1, bounds.width - 3, bounds.height - 3, arc, arc)
         }
         g.font = theme.labelFont.deriveFont(LABEL_SIZE)
-        g.color = contentColor
+        g.color = when {
+            !enabled -> theme.onSurface.withAlpha(97)
+            filled -> feedback.content(theme.onPrimary)
+            else -> feedback.content(theme.primary)
+        }
         val fm = g.fontMetrics
         g.drawString(label, (bounds.width - fm.stringWidth(label)) / 2, (bounds.height + fm.ascent - fm.descent) / 2)
     }
 
     override fun onMouseEvent(event: InputEvent.MouseInput): Boolean = when (event) {
-        is InputEvent.MousePressed -> enabled
+        is InputEvent.MousePressed -> { pointerFocus = true; enabled }
         is InputEvent.MouseReleased -> {
             if (enabled && pressed && bounds.contains(event.x, event.y)) onClick()
             true

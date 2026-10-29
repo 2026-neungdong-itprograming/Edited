@@ -1,7 +1,6 @@
 package io.github.nd2026.edited.theme
 
 import java.awt.Color
-import java.awt.Font
 
 /** Material 3 baseline light color scheme, hardcoded (no JSON loading needed for two static themes). */
 val MaterialLightTheme = Theme(
@@ -15,7 +14,7 @@ val MaterialLightTheme = Theme(
     error = Color(0xBA, 0x1A, 0x1A),
     onError = Color(0xFF, 0xFF, 0xFF),
     outline = Color(0x79, 0x74, 0x7E),
-    bodyFont = Font(Font.SANS_SERIF, Font.PLAIN, 14),
-    labelFont = Font(Font.SANS_SERIF, Font.PLAIN, 12),
-    monospaceFont = Font(Font.MONOSPACED, Font.PLAIN, 16),
+    bodyFont = ThemeFonts.of(14),
+    labelFont = ThemeFonts.of(12),
+    monospaceFont = ThemeFonts.of(16),
 )

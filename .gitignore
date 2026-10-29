@@ -45,3 +45,11 @@ bin/
 .DS_Store
 ### Kiwi language model (download separately, see README.md) ###
 app/models/
+/.idea/
+
+### IDE files that differ per machine ###
+.idea/misc.xml
+.idea/gradle.xml
+.idea/kotlinc.xml
+.idea/material_theme_project_new.xml
+.idea/AndroidProjectSystem.xml

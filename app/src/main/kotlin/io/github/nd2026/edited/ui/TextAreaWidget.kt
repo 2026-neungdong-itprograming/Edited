@@ -378,7 +378,16 @@ class TextAreaWidget(
         g.fillRect(x, y, width, metrics.lineHeight)
     }
 
-    override fun onKeyEvent(event: InputEvent.KeyInput): Boolean = when (event) {
+    override fun onKeyEvent(event: InputEvent.KeyInput): Boolean = when {
+        // Alt combinations (menus, Alt+1…5, Alt+←/→) belong to the window's keymap, not the text.
+        isAltCombo(event.modifiers) -> false
+        else -> handleKey(event)
+    }
+
+    private fun isAltCombo(modifiers: Int) =
+        modifiers and AwtInputEvent.ALT_DOWN_MASK != 0 && modifiers and AwtInputEvent.CTRL_DOWN_MASK == 0
+
+    private fun handleKey(event: InputEvent.KeyInput): Boolean = when (event) {
         is InputEvent.KeyTyped -> handleTyped(event.char)
         is InputEvent.KeyPressed -> handlePressed(event)
         is InputEvent.KeyReleased -> false
@@ -522,16 +531,16 @@ class TextAreaWidget(
         return textArea.textInRange(selection.first, selection.last + 1)
     }
 
-    private fun copySelection(): Boolean = selectedText()?.let(ClipboardService::writeText) ?: false
+    fun copySelection(): Boolean = selectedText()?.let(ClipboardService::writeText) ?: false
 
-    private fun cutSelection(): Boolean {
+    fun cutSelection(): Boolean {
         val selection = textArea.selectionRange()?.takeUnless(IntRange::isEmpty) ?: return false
         if (!ClipboardService.writeText(textArea.textInRange(selection.first, selection.last + 1))) return false
         textArea.delete(selection.first, selection.last + 1)
         return true
     }
 
-    private fun pasteClipboard(): Boolean {
+    fun pasteClipboard(): Boolean {
         val text = ClipboardService.readText() ?: return false
         textArea.typeAtCaret(text)
         resetCaretBlink()
@@ -539,11 +548,11 @@ class TextAreaWidget(
     }
 
     /** While an IME composition is open the buffer lacks the composed text, so undo waits until it is committed. */
-    private fun undo(): Boolean = composedText.isNotEmpty() || textArea.undo().also { resetCaretBlink() }
+    fun undo(): Boolean = composedText.isNotEmpty() || textArea.undo().also { resetCaretBlink() }
 
-    private fun redo(): Boolean = composedText.isNotEmpty() || textArea.redo().also { resetCaretBlink() }
+    fun redo(): Boolean = composedText.isNotEmpty() || textArea.redo().also { resetCaretBlink() }
 
-    private fun selectAll(): Boolean {
+    fun selectAll(): Boolean {
         textArea.moveCaretTo(0)
         textArea.moveCaretTo(textArea.length, extendSelection = true)
         resetCaretBlink()
