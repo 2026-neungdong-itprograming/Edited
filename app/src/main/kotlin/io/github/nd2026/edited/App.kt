@@ -103,6 +103,7 @@ class TextedWindow(initialProject: Project?) : JFrame() {
             keymap.bind(shortcut(KeyEvent.VK_F, shift = true), Command { workspace.showSearch(); true })
             keymap.bind(shortcut(KeyEvent.VK_E, shift = true), Command { workspace.exportManuscript(); true })
             keymap.bind(shortcut(KeyEvent.VK_C, shift = true), Command { workspace.copyActiveChapter(); true })
+            keymap.bind(shortcut(KeyEvent.VK_R, shift = true), Command { workspace.polishSelection(); true })
             keymap.bind(shortcut(KeyEvent.VK_F4), Command { workspace.closeActiveTab(); true })
             keymap.bind(shortcut(KeyEvent.VK_K), Command { workspace.commitNow(); true })
             keymap.bind(KeyStroke(KeyEvent.VK_F2, 0), Command { workspace.gotoProblem(1); true })

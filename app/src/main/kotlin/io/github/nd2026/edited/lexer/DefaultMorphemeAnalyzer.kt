@@ -35,6 +35,11 @@ object DefaultMorphemeAnalyzer : MorphemeAnalyzer {
     /** Rebuilds Kiwi off the calling thread; one at a time, in order. */
     private val reloader = Executors.newSingleThreadExecutor { Thread(it, "kiwi-dictionary").apply { isDaemon = true } }
 
+    /** Bumped every time Kiwi is rebuilt with a new dictionary, so memoized results ([Morphology]) know they are stale. */
+    @Volatile
+    var generation: Long = 0
+        private set
+
     @Volatile
     private var projectWords: Set<String> = emptySet()
 
@@ -55,7 +60,7 @@ object DefaultMorphemeAnalyzer : MorphemeAnalyzer {
         projectWords = next
         reloader.execute {
             val words = dictionaryWords + next.map { KiwiMorphemeAnalyzer.UserWord(it, "NNP", 10f) }
-            runCatching { delegate?.reload(words) }.onFailure { System.err.println("Kiwi dictionary reload failed: ${it.message}") }
+            runCatching { delegate?.reload(words); generation++ }.onFailure { System.err.println("Kiwi dictionary reload failed: ${it.message}") }
         }
     }
 }

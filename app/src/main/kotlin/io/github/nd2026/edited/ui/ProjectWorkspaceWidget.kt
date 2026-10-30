@@ -1,6 +1,10 @@
 package io.github.nd2026.edited.ui
 
 import io.github.nd2026.edited.AppInfo
+import io.github.nd2026.edited.ai.LlmClient
+import io.github.nd2026.edited.ai.LlmConfig
+import io.github.nd2026.edited.ai.ProseAssistant
+import io.github.nd2026.edited.core.Inspection
 import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.core.TextAreaListener
 import io.github.nd2026.edited.core.TextEdit
@@ -46,6 +50,8 @@ import java.awt.RenderingHints
 import java.awt.Toolkit
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.Executors
+import javax.swing.SwingUtilities
 
 class WorkspaceDocument(val path: Path) {
     val textArea = TextArea(Files.readString(path))
@@ -128,6 +134,14 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         CaptionButtonWidget(CaptionButtonWidget.Kind.CLOSE) { it.close() },
     )
     private var session: WorkspaceSession? = null
+    private val lintExecutor = Executors.newSingleThreadExecutor { Thread(it, "texted-lint").apply { isDaemon = true } }
+    private val aiExecutor = Executors.newSingleThreadExecutor { Thread(it, "texted-ai").apply { isDaemon = true } }
+    /** Latest [relint] request; older results arriving later are dropped. EDT only. */
+    private var lintGeneration = 0
+    /** Last lint result per chapter with the text it was computed from. [lintExecutor] only. */
+    private val lintMemo = HashMap<Path, Pair<String, List<Inspection>>>()
+    /** Called on the EDT whenever fresh inspections reach the problems pane (tests wait on it). */
+    internal var lintListener: (Map<Path, List<Inspection>>) -> Unit = {}
     var onNewProject: () -> Unit = {}
     var onOpenProject: () -> Unit = {}
 
@@ -240,6 +254,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
                 ContextMenuItem("이전 문제", "Shift+F2", hasProblems) { gotoProblem(-1) },
             )
             4 -> listOf(
+                ContextMenuItem("AI로 문장 다듬기", "Ctrl+Shift+R", hasDocument) { polishSelection() },
                 ContextMenuItem("원고 검수 다시 하기", "", hasProject) { recheck() },
                 ContextMenuItem("분량 통계", "Alt+4", hasProject) { showLeftPane(3) },
                 ContextMenuItem("설정집", "Alt+3", hasProject) { showLeftPane(2) },
@@ -394,6 +409,39 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         status.requestRepaint()
     }
 
+    /**
+     * Sends the selection (or the caret's line) to the configured LLM ([LlmConfig]) and replaces it with
+     * the polished text as one undoable edit - unless the author changed that text while waiting.
+     */
+    fun polishSelection() {
+        val document = session?.activeDocument ?: return setStatus("다듬을 원고가 없습니다")
+        val config = LlmConfig.load()
+            ?: return setStatus("⚠ AI 설정이 없습니다: OPENAI_BASE_URL·OPENAI_API_KEY 또는 ${LlmConfig.userFile}")
+        val area = document.textArea
+        val (start, end) = area.selectionRange()?.takeUnless(IntRange::isEmpty)?.let { it.first to it.last + 1 }
+            ?: area.lineOf(area.caret).let { area.lineStart(it) to area.lineEnd(it) }
+        val original = area.textInRange(start, end)
+        if (original.isBlank()) return setStatus("다듬을 문장을 고르거나 문장이 있는 줄에 커서를 두세요")
+        setStatus("AI가 다듬는 중… (${config.model})")
+        aiExecutor.execute {
+            val result = runCatching { ProseAssistant(LlmClient(config)).polish(original) }
+            SwingUtilities.invokeLater {
+                result.fold(
+                    { polished ->
+                        if (end <= area.length && area.textInRange(start, end) == original) {
+                            area.replace(start, end, polished)
+                            editor.refresh()
+                            setStatus("✓ AI가 다듬었습니다 · Ctrl+Z로 되돌리기")
+                        } else {
+                            setStatus("⚠ 기다리는 동안 원고가 바뀌어 적용하지 않았습니다")
+                        }
+                    },
+                    { setStatus("⚠ AI 다듬기 실패: ${it.message}") },
+                )
+            }
+        }
+    }
+
     /** Copies the open chapter as plain text, ready to paste into a serial platform's editor. */
     fun copyActiveChapter() {
         val document = session?.activeDocument
@@ -412,13 +460,34 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         DefaultMorphemeAnalyzer.setProjectWords(
             runCatching { CharacterRepository.load(project).flatMap { listOf(it.name) + it.aliases } }.getOrDefault(emptyList()),
         )
-        problems.inspections = runCatching {
-            project.chapters().associate { it.path.toAbsolutePath().normalize() to Linter.run(Files.readString(it.path)) }
-        }.getOrDefault(emptyMap())
+        relint(project)
         stats.refresh()
         characters.refresh()
         history.refresh()
         search.search()
+    }
+
+    /**
+     * Lints every chapter on [lintExecutor] - the first run may wait for Kiwi to load (or download) - and
+     * publishes the result on the EDT unless a newer run superseded it. Unchanged chapters reuse [lintMemo].
+     */
+    private fun relint(project: Project) {
+        val generation = ++lintGeneration
+        val chapters = project.chapters().map { it.path.toAbsolutePath().normalize() }
+        lintExecutor.execute {
+            val result = runCatching {
+                chapters.associateWith { path ->
+                    val text = Files.readString(path)
+                    lintMemo[path]?.takeIf { it.first == text }?.second ?: Linter.run(text).also { lintMemo[path] = text to it }
+                }
+            }.getOrDefault(emptyMap())
+            lintMemo.keys.retainAll(chapters.toSet())
+            SwingUtilities.invokeLater {
+                if (generation != lintGeneration) return@invokeLater
+                problems.inspections = result
+                lintListener(result)
+            }
+        }
     }
 
     private fun bind(next: WorkspaceSession, warnings: List<String>) {
@@ -462,6 +531,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             "찾기·바꾸기\tCtrl+Shift+F",
             "내보내기 (TXT·EPUB)\tCtrl+Shift+E",
             "회차 본문 복사\tCtrl+Shift+C",
+            "AI로 문장 다듬기 (선택 또는 지금 줄)\tCtrl+Shift+R",
             "패널 전환 (원고 … 기록)\tAlt+1 … Alt+5",
             "다음 / 이전 탭\tAlt+→ / Alt+←",
             "다음 / 이전 문제\tF2 / Shift+F2",
@@ -942,10 +1012,14 @@ private class DocumentEditorWidget : Container() {
         val current = session
         tabs.tabs = current?.openDocuments?.map { TabItem(it.path.toString(), it.path.fileName.toString() + if (it.dirty) " •" else "") }.orEmpty()
         tabs.selectedId = current?.activePath?.toString()
-        activeEditor?.let(::removeChild)
-        // Only Markdown manuscripts get Kiwi morpheme analysis; JSON, .gitignore etc. stay plain text.
-        activeEditor = current?.activeDocument?.let { TextAreaWidget(it.textArea, analyzerFor(it.path)) }
-        activeEditor?.let(::addChild)
+        val document = current?.activeDocument
+        // Keep the editor (scroll position, morpheme cache) when the active document didn't change, e.g. after Ctrl+S.
+        if (activeEditor?.textArea !== document?.textArea) {
+            activeEditor?.let(::removeChild)
+            // Only Markdown manuscripts get Kiwi morpheme analysis; JSON, .gitignore etc. stay plain text.
+            activeEditor = document?.let { TextAreaWidget(it.textArea, analyzerFor(it.path)) }
+            activeEditor?.let(::addChild)
+        }
         layout(); requestRepaint()
         onActiveChanged(current?.activePath)
     }
@@ -1081,4 +1155,4 @@ private object NoMorphemeAnalyzer : MorphemeAnalyzer {
 }
 
 private fun analyzerFor(path: Path): MorphemeAnalyzer =
-    if (path.fileName.toString().endsWith(".md", ignoreCase = true)) DefaultMorphemeAnalyzer else NoMorphemeAnalyzer
+    if (path.fileName.toString().endsWith(".md", ignoreCase = true)) Morphology.analyzer else NoMorphemeAnalyzer
