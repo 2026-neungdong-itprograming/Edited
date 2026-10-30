@@ -190,6 +190,21 @@ class TextAreaWidgetTest {
         assertEquals(0, w.textArea.lineOf(w.textArea.caret))
         assertEquals(0, w.scrollY)
     }
+
+    @Test
+    fun findHighlightMarksEveryOccurrenceOnALine() {
+        val w = widget("민준이 웃자 민준이 따라 웃었다.\n아무도 없었다.")
+        assertEquals(emptyList(), w.highlightColumns(w.textArea.lineText(0)), "nothing is marked without a query")
+        w.highlightQuery = "민준"
+        assertEquals(listOf(0, 7), w.highlightColumns(w.textArea.lineText(0)))
+        assertEquals(emptyList(), w.highlightColumns(w.textArea.lineText(1)))
+        w.highlightQuery = "웃"
+        assertEquals(listOf(4, 14), w.highlightColumns(w.textArea.lineText(0)))
+        w.textArea.moveCaretTo(4) // the "current" match is painted differently; painting must not fail either way
+        paint(w)
+        w.highlightQuery = ""
+        assertEquals(emptyList(), w.highlightColumns(w.textArea.lineText(0)))
+    }
 }
 
 class EditorGroupWidgetTest {
@@ -345,6 +360,12 @@ class FindShortcutTest {
         assertEquals("민준", find.text)
         "서".forEach { find.onKeyEvent(InputEvent.KeyTyped(it, 0)) }
         assertEquals("서", find.text, "typing after the shortcut replaces the old search text")
+
+        val reported = mutableListOf<String>()
+        pane.onQueryChanged = { reported += it }
+        "준".forEach { find.onKeyEvent(InputEvent.KeyTyped(it, 0)) }
+        assertEquals("서준", pane.queryText)
+        assertEquals("서준", reported.last(), "the editor highlight follows what is typed in the find field")
 
         val replace = pane.shortcutField(replace = true)
         assertTrue(find !== replace, "Ctrl+H must focus the replacement field, not the search field")

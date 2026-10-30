@@ -108,6 +108,17 @@ class TextAreaWidget(
             requestRepaint()
         }
 
+    /**
+     * Text marked wherever it appears, e.g. the find pane's query; empty marks nothing. Only the
+     * visible lines are scanned while painting, so this costs nothing for off-screen text.
+     */
+    var highlightQuery: String = ""
+        set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
     /** Spelling results per line text; visible lines repeat frame after frame. EDT only. */
     private val spellingCache = object : LinkedHashMap<String, List<Misspelling>>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Misspelling>>?) = size > 2048
@@ -192,6 +203,7 @@ class TextAreaWidget(
                 widest = maxOf(widest, fm.stringWidth(lineText) + fm.stringWidth(composedText))
             } else {
                 val layout = layoutOf(line, lineText)
+                paintMatches(g, metrics, line, layout)
                 paintSelection(g, metrics, line, layout)
                 paintLine(g, metrics, line, layout, suppression)
                 widest = maxOf(widest, xOf(layout, lineText.length, fm::stringWidth) - TEXT_INSET)
@@ -534,6 +546,48 @@ class TextAreaWidget(
         g.color = theme.primary
         val compositionWidth = g.fontMetrics.stringWidth(composedText).coerceAtLeast(2)
         g.drawLine(compositionX, baseline + 2, compositionX + compositionWidth, baseline + 2)
+    }
+
+    /** Start columns of every non-overlapping [highlightQuery] occurrence in [lineText], left to right. */
+    fun highlightColumns(lineText: String): List<Int> {
+        val query = highlightQuery
+        if (query.isEmpty()) return emptyList()
+        val columns = ArrayList<Int>()
+        var from = 0
+        while (true) {
+            val column = lineText.indexOf(query, from)
+            if (column < 0) break
+            columns += column
+            from = column + query.length
+        }
+        return columns
+    }
+
+    /**
+     * Marks find matches on [line]. The match the caret is in (where a click on a result lands)
+     * is drawn stronger and outlined, so the writer sees which one they are on.
+     */
+    private fun paintMatches(g: Graphics2D, metrics: PixelMetrics, line: Int, layout: LineLayout) {
+        val columns = highlightColumns(layout.text)
+        if (columns.isEmpty()) return
+        val fm = g.fontMetrics
+        val length = highlightQuery.length
+        val lineStart = textArea.lineStart(line)
+        val caretColumn = textArea.caret - lineStart
+        val y = metrics.topOf(line) - scrollY
+        val accent = theme.warning
+        for (column in columns) {
+            // Through the line layout, so a match after a folded directive chip lines up with its text.
+            val x = xOf(layout, column, fm::stringWidth)
+            val width = (xOf(layout, column + length, fm::stringWidth) - x).coerceAtLeast(2)
+            val current = caretColumn in column..column + length
+            g.color = accent.withAlpha(if (current) 150 else 70)
+            g.fillRect(x, y + 1, width, metrics.lineHeight - 2)
+            if (current) {
+                g.color = accent
+                g.drawRect(x, y + 1, width - 1, metrics.lineHeight - 3)
+            }
+        }
     }
 
     private fun paintSelection(g: Graphics2D, metrics: PixelMetrics, line: Int, layout: LineLayout) {

@@ -187,6 +187,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         showLeftPane(0)
         problems.onNavigate = { path, line -> openFile(path); editor.reveal(line) }
         search.onOpenHit = { hit -> openFile(hit.path); editor.reveal(hit.line, hit.column) }
+        search.onQueryChanged = { updateFindHighlight() }
         search.beforeReplace = { session?.saveAll() }
         search.onReplaced = { changed ->
             session?.reloadFromDisk()
@@ -408,7 +409,13 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
     fun showLeftPane(index: Int) {
         leftPanes.forEachIndexed { i, pane -> pane.visible = i == index }
         rail.selectedIndex = index
+        updateFindHighlight()
         requestRepaint()
+    }
+
+    /** Find matches are marked in the editor while the 찾기·바꾸기 pane is open, and cleared when another pane is. */
+    private fun updateFindHighlight() {
+        editor.highlightQuery = if (search.visible) search.queryText else ""
     }
 
     /**
@@ -1170,6 +1177,10 @@ private class DocumentEditorWidget : Container() {
     var revealDirectives = false
         set(value) { field = value; activeEditor?.revealDirectives = value }
 
+    /** Find text marked in the active editor; kept here so it carries over when another tab is opened. */
+    var highlightQuery: String = ""
+        set(value) { field = value; activeEditor?.highlightQuery = value }
+
     /** Editor text size chosen with Ctrl+wheel; null until the author zooms (theme default). */
     private var editorFontSize: Float? = null
 
@@ -1191,6 +1202,7 @@ private class DocumentEditorWidget : Container() {
             activeEditor = document?.let {
                 TextAreaWidget(it.textArea, analyzerFor(it.path)).apply {
                     revealDirectives = this@DocumentEditorWidget.revealDirectives
+                    highlightQuery = this@DocumentEditorWidget.highlightQuery
                     // Ctrl+wheel zoom applies to every tab, not just the one it was done in.
                     fontSize = editorFontSize
                     onFontSizeChanged = { size -> editorFontSize = size }
