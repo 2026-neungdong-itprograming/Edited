@@ -166,6 +166,8 @@ class TextFieldWidget(
 
     private fun handlePressed(event: InputEvent.KeyPressed): Boolean {
         if (event.modifiers and SHORTCUT_MASK != 0) {
+            // Ctrl+Shift+… combinations belong to the window keymap (e.g. 회차 본문 복사), not the field.
+            if (event.modifiers and AwtInputEvent.SHIFT_DOWN_MASK != 0) return false
             return when (event.keyCode) {
                 KeyEvent.VK_A -> {
                     area.moveCaretTo(0)

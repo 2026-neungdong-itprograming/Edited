@@ -118,6 +118,76 @@ class TextAreaWidgetTest {
         // 10px into a view scrolled by 150px lands past column 0; at the font's width this is a few columns in.
         assertTrue(w.textArea.caret in 5..40, "caret=${w.textArea.caret}")
     }
+
+    private fun TextAreaWidget.press(keyCode: Int, modifiers: Int = 0) = onKeyEvent(InputEvent.KeyPressed(keyCode, modifiers))
+
+    @Test
+    fun ctrlShiftClipboardKeysAreLeftToTheWindowKeymap() {
+        val w = widget("민준이 웃었다.")
+        w.press(KeyEvent.VK_A, ctrl)
+        // With a selection, Ctrl+Shift+C must still reach 회차 본문 복사 instead of being eaten as a plain copy.
+        for (key in listOf(KeyEvent.VK_C, KeyEvent.VK_X, KeyEvent.VK_V, KeyEvent.VK_A, KeyEvent.VK_Y)) {
+            assertEquals(false, w.press(key, ctrl or Awt.SHIFT_DOWN_MASK), "Ctrl+Shift+${KeyEvent.getKeyText(key)}")
+        }
+        assertEquals("민준이 웃었다.", w.textArea.snapshot())
+    }
+
+    @Test
+    fun ctrlArrowsMoveByWordAndStopAtLineBreaks() {
+        val w = widget("민준이가 문을 열었다.\n서연은 웃었다.")
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(5, w.textArea.caret) // past "민준이가 "
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(8, w.textArea.caret) // past "문을 "
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(11, w.textArea.caret) // "열었다" ends before the period
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(12, w.textArea.caret) // the period
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(13, w.textArea.caret) // the line break is its own stop
+        w.press(KeyEvent.VK_LEFT, ctrl)
+        assertEquals(12, w.textArea.caret)
+        w.press(KeyEvent.VK_LEFT, ctrl)
+        assertEquals(11, w.textArea.caret)
+        w.press(KeyEvent.VK_LEFT, ctrl)
+        assertEquals(8, w.textArea.caret)
+        w.press(KeyEvent.VK_LEFT, ctrl or Awt.SHIFT_DOWN_MASK)
+        assertEquals(5 until 8, w.textArea.selectionRange())
+    }
+
+    @Test
+    fun ctrlBackspaceAndCtrlDeleteRemoveOneWordAndUndoInOneStep() {
+        val w = widget("그는 문을 열었다")
+        w.textArea.moveCaretTo(w.textArea.length)
+        w.press(KeyEvent.VK_BACK_SPACE, ctrl)
+        assertEquals("그는 문을 ", w.textArea.snapshot())
+        // Some platforms also type a '\b' for Ctrl+Backspace; it must not delete a second character.
+        assertTrue(w.onKeyEvent(InputEvent.KeyTyped('\b', ctrl)))
+        assertEquals("그는 문을 ", w.textArea.snapshot())
+        w.press(KeyEvent.VK_Z, ctrl)
+        assertEquals("그는 문을 열었다", w.textArea.snapshot())
+
+        w.textArea.moveCaretTo(0)
+        w.press(KeyEvent.VK_DELETE, ctrl)
+        assertEquals("문을 열었다", w.textArea.snapshot())
+    }
+
+    @Test
+    fun ctrlHomeEndJumpToDocumentEdgesAndPageKeysMoveAScreen() {
+        val w = widget("line\n".repeat(200), height = 100)
+        w.press(KeyEvent.VK_END, ctrl)
+        assertEquals(w.textArea.length, w.textArea.caret)
+        w.press(KeyEvent.VK_HOME, ctrl)
+        assertEquals(0, w.textArea.caret)
+
+        val page = (w.bounds.height / w.lineHeight - 1).coerceAtLeast(1)
+        w.press(KeyEvent.VK_PAGE_DOWN)
+        assertEquals(page, w.textArea.lineOf(w.textArea.caret))
+        assertTrue(w.scrollY > 0)
+        w.press(KeyEvent.VK_PAGE_UP)
+        assertEquals(0, w.textArea.lineOf(w.textArea.caret))
+        assertEquals(0, w.scrollY)
+    }
 }
 
 class EditorGroupWidgetTest {
