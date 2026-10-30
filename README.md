@@ -67,8 +67,9 @@
 
 ### 5. 핵심 경쟁력 요약
 
-* **Zero GPU / Measurable On-Device Performance:** LLM 없이 Kiwi + Rule Engine + FSM로 구동하고, 입력 지연·프레임 시간·repaint 면적을 회귀 지표로 관리.
-* **Determinism & Stability:** 환각(Hallucination) 없는 명확한 규칙 기반 검수와 JGit의 절대적인 데이터 안정성 확보.
+* **Measurable On-Device Performance:** 검수·통계·검색은 Kiwi + Rule Engine + FSM로 기기 안에서 돌리고, 입력 지연·프레임 시간·repaint 면적을 회귀 지표로 관리.
+* **AI 보조 (선택):** OpenAI 호환 Chat Completions 주소(예: llms 라우트)를 설정하면 `도구 › AI로 문장 다듬기`(`Ctrl+Shift+R`)로 고른 문장을 다듬는다. 결과는 실행 취소 한 번으로 되돌린다. 설정: `OPENAI_BASE_URL`·`OPENAI_API_KEY`(`llms env <slug>` 출력) 또는 `~/.texted/llm.properties`(`base_url=`, `api_key=`, `model=`).
+* **Determinism & Stability:** 규칙 기반 검수는 결정적으로 동작하고, JGit으로 원고 데이터의 안정성을 확보.
 * **Developer-like Author UX:** IntelliJ의 `Alt + Enter`, `Find Usages`, `Gutter bar`, `Structure View` 등의 UX를 웹소설 창작 환경에 이식.
 
 ---

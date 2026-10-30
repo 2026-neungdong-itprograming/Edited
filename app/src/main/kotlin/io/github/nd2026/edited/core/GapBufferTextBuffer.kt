@@ -18,8 +18,16 @@ class GapBufferTextBuffer(initialCapacity: Int = 64) : TextBuffer {
     private var gapEnd = buffer.size
     private val lineStarts = IntArrayList().apply { add(0) }
 
-    constructor(text: CharSequence) : this(text.length + 16) {
+    /**
+     * Loads [text] leaving a gap of about 1/8 of its length (up to [MAX_INITIAL_GAP]), so the first
+     * keystrokes in a large manuscript don't reallocate and copy the whole buffer.
+     */
+    constructor(text: CharSequence) : this(text.length + (text.length / 8).coerceIn(16, MAX_INITIAL_GAP)) {
         insert(0, text)
+    }
+
+    private companion object {
+        const val MAX_INITIAL_GAP = 1 shl 20
     }
 
     override val length: Int
@@ -102,7 +110,8 @@ class GapBufferTextBuffer(initialCapacity: Int = 64) : TextBuffer {
 
         moveGapTo(offset)
         ensureGapCapacity(text.length)
-        for (i in text.indices) buffer[gapStart + i] = text[i]
+        if (text is String) text.toCharArray(buffer, gapStart, 0, text.length)
+        else for (i in text.indices) buffer[gapStart + i] = text[i]
         gapStart += text.length
 
         val line = lineStarts.floorIndex(offset)

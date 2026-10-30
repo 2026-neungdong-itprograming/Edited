@@ -23,4 +23,13 @@ class MorphologyTest {
         val first = morphemes[2].first()
         assertEquals("하늘", lines[2].substring(first.start, first.end))
     }
+
+    @Test
+    fun repeatedTextComesFromTheMemoAndAnalyzerShiftsOffsets() {
+        val text = "그는 문을 열었다."
+        val first = Morphology.analyze(text)
+        assertTrue(first === Morphology.analyze(text) || !Morphology.isAvailable)
+        val shifted = Morphology.analyzer.analyze(text, baseOffset = 10)
+        assertEquals(first.map { it.start + 10 }, shifted.map { it.start })
+    }
 }

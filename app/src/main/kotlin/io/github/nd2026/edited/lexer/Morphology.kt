@@ -15,11 +15,52 @@ object Morphology {
     /** False when Kiwi could not be loaded (no model, offline first run…); callers should then skip morpheme features. */
     val isAvailable: Boolean get() = DefaultMorphemeAnalyzer.isAvailable
 
-    /** Morphemes of [text]; offsets index [text]. Empty if Kiwi is unavailable. */
-    fun analyze(text: String): List<Morpheme> = DefaultMorphemeAnalyzer.analyze(text)
+    /**
+     * Morphemes of [text]; offsets index [text]. Empty if Kiwi is unavailable.
+     *
+     * Results are memoized per text (inspections, statistics, search and tags all re-read the same
+     * manuscript lines), and the memo is dropped whenever the project dictionary reloads Kiwi.
+     */
+    fun analyze(text: String): List<Morpheme> {
+        if (text.isEmpty()) return emptyList()
+        val generation = DefaultMorphemeAnalyzer.generation
+        synchronized(cache) {
+            if (cacheGeneration != generation) {
+                cache.clear()
+                cacheGeneration = generation
+            }
+            cache[text]?.let { return it }
+        }
+        val morphemes = DefaultMorphemeAnalyzer.analyze(text)
+        // Don't memoize "Kiwi unavailable" or a result computed against a dictionary that was just replaced.
+        if (DefaultMorphemeAnalyzer.isAvailable && text.length <= MAX_CACHED_TEXT) synchronized(cache) {
+            if (cacheGeneration == generation) cache[text] = morphemes
+        }
+        return morphemes
+    }
 
     /** Morphemes per line, each line's offsets relative to that line (matches `InspectionRule`'s 0-based lines). */
     fun analyzeLines(lines: List<String>): List<List<Morpheme>> = lines.map { if (it.isBlank()) emptyList() else analyze(it) }
+
+    /** [analyze] as a [MorphemeAnalyzer], for editors: reopening a tab re-reads lines from the memo instead of Kiwi. */
+    val analyzer: MorphemeAnalyzer = object : MorphemeAnalyzer {
+        override fun analyze(text: String, baseOffset: Int): List<Morpheme> {
+            val morphemes = this@Morphology.analyze(text)
+            return if (baseOffset == 0) morphemes else morphemes.map { it.copy(start = it.start + baseOffset, end = it.end + baseOffset) }
+        }
+    }
+
+    /** Drops memoized results; the next [analyze] calls go to Kiwi again. */
+    fun clearCache() = synchronized(cache) { cache.clear() }
+
+    private const val CACHE_ENTRIES = 50_000
+    private const val MAX_CACHED_TEXT = 4_000
+
+    /** LRU memo of [analyze], keyed by the exact text. Guarded by itself. */
+    private val cache = object : LinkedHashMap<String, List<Morpheme>>(1024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Morpheme>>?) = size > CACHE_ENTRIES
+    }
+    private var cacheGeneration = -1L
 
     /** Loads Kiwi on a background thread so the first real call doesn't stall the UI. */
     fun warmUp() {
@@ -29,6 +70,8 @@ object Morphology {
 
 private val NOUN_TAGS = setOf("NNG", "NNP", "NNB", "NP", "NR")
 private val PREDICATE_TAGS = setOf("VV", "VA", "VX", "VCP", "VCN")
+private val CONTENT_TAGS = setOf("NNG", "NNP", "VV", "VA", "MAG")
+private val LEMMA_TAGS = setOf("VV", "VA", "VX")
 
 /** Common/proper/bound noun, pronoun or numeral. */
 val Morpheme.isNoun: Boolean get() = partOfSpeech in NOUN_TAGS
@@ -50,7 +93,7 @@ val Morpheme.isAdverb: Boolean get() = partOfSpeech == "MAG" || partOfSpeech == 
 
 /** A word that carries meaning (noun, verb, adjective, adverb) - what word counts and repetition checks want. */
 val Morpheme.isContentWord: Boolean
-    get() = partOfSpeech in setOf("NNG", "NNP", "VV", "VA", "MAG")
+    get() = partOfSpeech in CONTENT_TAGS
 
 /** Dictionary form: verb/adjective stems get "다" (먹 → 먹다, 아름답 → 아름답다); everything else is its surface. */
-val Morpheme.lemma: String get() = if (partOfSpeech in setOf("VV", "VA", "VX")) surface + "다" else surface
+val Morpheme.lemma: String get() = if (partOfSpeech in LEMMA_TAGS) surface + "다" else surface
