@@ -19,6 +19,7 @@
 | TXT·EPUB 내보내기 (`export/` 폴더) | `Ctrl+Shift+E` |
 | 지금 회차 본문 복사 (연재처 붙여넣기용) | `Ctrl+Shift+C` |
 | 다음 / 이전 문제로 이동 | `F2` / `Shift+F2` |
+| 편집기 글꼴 크기 (아래 가운데에 "글꼴 크기: 22pt" 표시) | `Ctrl+휠` |
 | 모든 메뉴와 단축키 | 위쪽 메뉴 막대, 도움말 › 단축키 |
 
 경로 표기: `edited/` = `app/src/main/kotlin/io/github/nd2026/edited/`, `test/` = `app/src/test/kotlin/io/github/nd2026/edited/`

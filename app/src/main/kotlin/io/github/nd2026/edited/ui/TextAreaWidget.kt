@@ -20,6 +20,7 @@ import io.github.nd2026.edited.ui.components.ContextMenuWidget
 import io.github.nd2026.edited.ui.components.withAlpha
 import java.awt.BasicStroke
 import java.awt.Color
+import java.awt.Font
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.Toolkit
@@ -61,7 +62,37 @@ class TextAreaWidget(
     private val scrollListeners = CopyOnWriteArrayList<() -> Unit>()
 
     /** Pixel height of one text line for the current theme font; stable before the first paint. */
-    val lineHeight: Int get() = EditorFontMetrics.of(theme.monospaceFont).height
+    val lineHeight: Int get() = EditorFontMetrics.of(editorFont).height
+
+    /** Text size in points; null follows the theme. Ctrl+wheel changes it (see [zoomBy]). */
+    var fontSize: Float? = null
+        set(value) {
+            val clamped = value?.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
+            if (field == clamped) return
+            // Keep the same line at the top of the view while the line height changes.
+            val topLine = scrollY.toDouble() / lineHeight
+            field = clamped
+            contentWidth = 0
+            scrollTo(y = (topLine * lineHeight).roundToInt())
+            requestRepaint()
+        }
+
+    /** Called after Ctrl+wheel changed [fontSize], so the next tab can open at the same size. */
+    var onFontSizeChanged: (Float) -> Unit = {}
+
+    /** The theme's editor font at [fontSize]. */
+    val editorFont: Font
+        get() {
+            val base = theme.monospaceFont
+            val size = fontSize ?: return base
+            val cached = derivedFont
+            if (cached != null && cached.second === base && cached.first.size2D == size) return cached.first
+            return base.deriveFont(size).also { derivedFont = it to base }
+        }
+    private var derivedFont: Pair<Font, Font>? = null
+
+    /** Until when the "글꼴 크기" badge stays on screen (System.currentTimeMillis). */
+    private var fontBadgeUntil = 0L
     private var selectionDrag = false
     private var contextMenu: ContextMenuWidget? = null
     private var composedText = ""
@@ -138,9 +169,9 @@ class TextAreaWidget(
         val t = theme
         g.color = t.surface
         g.fillRect(0, 0, bounds.width, bounds.height)
-        g.font = t.monospaceFont
+        g.font = editorFont
         val fm = g.fontMetrics
-        val editorMetrics = EditorFontMetrics.of(t.monospaceFont)
+        val editorMetrics = EditorFontMetrics.of(editorFont)
         val metrics = PixelMetrics(editorMetrics.height, editorMetrics.ascent)
 
         val viewport = metrics.viewportFor(scrollY, bounds.height, textArea.lineCount)
@@ -186,6 +217,35 @@ class TextAreaWidget(
         g.dispose()
         paintMorphemePopup(viewGraphics, metrics, visibleRange)
         paintHorizontalScrollThumb(viewGraphics)
+        paintFontBadge(viewGraphics)
+    }
+
+    /** "글꼴 크기: 22pt", centred at the bottom of the editor for a moment after a Ctrl+wheel zoom. */
+    private fun paintFontBadge(g: Graphics2D) {
+        if (System.currentTimeMillis() >= fontBadgeUntil) return
+        val text = "글꼴 크기: ${editorFont.size2D.roundToInt()}pt"
+        g.font = theme.labelFont
+        val fm = g.fontMetrics
+        val width = fm.stringWidth(text) + 28
+        val height = fm.height + 14
+        val x = (bounds.width - width) / 2
+        val y = bounds.height - height - 16
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+        g.color = theme.onSurface.withAlpha(215)
+        g.fillRoundRect(x, y, width, height, height, height)
+        g.color = theme.surface
+        g.drawString(text, x + 14, y + (height + fm.ascent - fm.descent) / 2)
+    }
+
+    /** Ctrl+wheel: one point per notch, up = bigger. Shows the badge and tells [onFontSizeChanged]. */
+    private fun zoomBy(steps: Int) {
+        if (steps == 0) return
+        fontSize = editorFont.size2D + steps
+        onFontSizeChanged(editorFont.size2D)
+        fontBadgeUntil = System.currentTimeMillis() + FONT_BADGE_MILLIS
+        requestRepaint()
+        // Repaint once more when the badge's time is up, so it disappears without other input.
+        caretClock.schedule({ requestRepaint() }, FONT_BADGE_MILLIS + 20, TimeUnit.MILLISECONDS)
     }
 
     private fun updateContentWidth(visibleWidest: Int) {
@@ -591,7 +651,10 @@ class TextAreaWidget(
             updateHoveredSentence(null)
             false
         }
-        is InputEvent.Scroll -> {
+        is InputEvent.Scroll -> if (event.modifiers and (AwtInputEvent.CTRL_DOWN_MASK or menuShortcutMask) != 0) {
+            zoomBy(if (event.unitsToScroll < 0) 1 else if (event.unitsToScroll > 0) -1 else 0)
+            true
+        } else {
             val delta = (event.unitsToScroll * lineHeight).toInt()
             if (event.modifiers and AwtInputEvent.SHIFT_DOWN_MASK != 0) scrollTo(x = scrollX + delta)
             else scrollTo(y = scrollY + delta)
@@ -801,7 +864,7 @@ class TextAreaWidget(
         return TEXT_INSET + widthOf(prefix) + widthOf(composedText.take(compositionCaret))
     }
 
-    private fun textWidth(text: String): Int = theme.monospaceFont
+    private fun textWidth(text: String): Int = editorFont
         .getStringBounds(text, FontRenderContext(null, true, true)).width.roundToInt()
 
     private fun clearComposition() {
@@ -815,6 +878,9 @@ class TextAreaWidget(
 
     companion object {
         private const val TEXT_INSET = 8
+        private const val MIN_FONT_SIZE = 8f
+        private const val MAX_FONT_SIZE = 72f
+        private const val FONT_BADGE_MILLIS = 1500L
 
         /** Width of a folded directive's chip. */
         private const val CHIP_WIDTH = 24

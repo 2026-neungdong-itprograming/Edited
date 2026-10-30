@@ -676,6 +676,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             "다음 / 이전 탭\tAlt+→ / Alt+←",
             "다음 / 이전 문제\tF2 / Shift+F2",
             "지금 기록 남기기\tCtrl+K",
+            "편집기 글꼴 크기\tCtrl+휠",
             "메뉴 열기\tAlt+F, E, V, N, T, G, H",
         )
     }
@@ -1158,6 +1159,9 @@ private class DocumentEditorWidget : Container() {
     var revealDirectives = false
         set(value) { field = value; activeEditor?.revealDirectives = value }
 
+    /** Editor text size chosen with Ctrl+wheel; null until the author zooms (theme default). */
+    private var editorFontSize: Float? = null
+
     init {
         addChild(tabs)
         tabs.onSelect = { session?.select(Path.of(it)); refresh() }
@@ -1173,7 +1177,14 @@ private class DocumentEditorWidget : Container() {
         if (activeEditor?.textArea !== document?.textArea) {
             activeEditor?.let(::removeChild)
             // Only prose (Texted formats and Markdown) gets Kiwi morpheme analysis; JSON, .gitignore etc. stay plain text.
-            activeEditor = document?.let { TextAreaWidget(it.textArea, analyzerFor(it.path)).apply { revealDirectives = this@DocumentEditorWidget.revealDirectives } }
+            activeEditor = document?.let {
+                TextAreaWidget(it.textArea, analyzerFor(it.path)).apply {
+                    revealDirectives = this@DocumentEditorWidget.revealDirectives
+                    // Ctrl+wheel zoom applies to every tab, not just the one it was done in.
+                    fontSize = editorFontSize
+                    onFontSizeChanged = { size -> editorFontSize = size }
+                }
+            }
             activeEditor?.let(::addChild)
         }
         layout(); requestRepaint()
