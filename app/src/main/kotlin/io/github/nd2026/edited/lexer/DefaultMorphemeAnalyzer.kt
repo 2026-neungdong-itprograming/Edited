@@ -46,6 +46,8 @@ object DefaultMorphemeAnalyzer : MorphemeAnalyzer {
     /** True once Kiwi is loaded; loads it (blocking) on first access. */
     val isAvailable: Boolean get() = delegate != null
 
+    override val isThreadSafe: Boolean get() = true
+
     override fun analyze(text: String, baseOffset: Int): List<Morpheme> =
         delegate?.analyze(text, baseOffset) ?: emptyList()
 

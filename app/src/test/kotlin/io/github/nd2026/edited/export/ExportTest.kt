@@ -12,6 +12,7 @@ import kotlin.test.assertTrue
 class ExportTest {
     private fun project() = ProjectService.create(NewProjectRequest("내보내기 <테스트>", Files.createTempDirectory("texted-export").toString(), "작가", initGit = false)).project
         .also {
+            Files.delete(it.manuscriptDir.resolve(ProjectService.FIRST_CHAPTER))
             Files.writeString(it.manuscriptDir.resolve("01. 제1화.md"), "# 제1화\n\n**그날** 비가 왔다.  \n\n\n\n> 회상\n")
             Files.writeString(it.manuscriptDir.resolve("02. 제2화.md"), "# 제2화\n둘째 & 끝")
         }

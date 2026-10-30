@@ -13,6 +13,7 @@
 | 기능 | 여는 법 |
 | --- | --- |
 | 원고 / 찾기 / 설정 / 분량 / 기록 패널 | 왼쪽 레일 버튼 |
+| 새로 만들기(에피소드·캐릭터·세계관·폴더) / 이름 바꾸기 / 확장자 바꾸기 | 원고 패널에서 파일·폴더 우클릭 (새로 만들기는 파일 메뉴에도) |
 | 찾기·바꾸기 | `Ctrl+Shift+F` (편집기에서 고른 글자로 바로 찾기) |
 | 저장 + 기록 남기기 + 검수·분량 갱신 | `Ctrl+S` |
 | TXT·EPUB 내보내기 (`export/` 폴더) | `Ctrl+Shift+E` |
@@ -189,6 +190,7 @@ class HistoryPane : Widget() { var project: Project?; var activePath: Path? }   
 - [x] `.md` 파일만 형태소 분석을 하고, json 같은 파일은 하지 않음
 - [x] 작업마다 빈 껍데기와 `Linter` 연결 (작업 1의 형태소 규칙은 이미 저장할 때 실행됩니다)
 - [x] 사용 예시 테스트: `test/lexer/MorphologyTest.kt`
+- [x] 병렬 처리 공용 도구 `core/Parallel.kt`: `Morphology.analyzeLines`·편집기 형태소 분석·원고 전체 검수가 모든 CPU 코어를 씁니다 (2,000줄 기준 4~6배 빠름)
 
 ### 공용 도구 사용법 (`lexer/Morphology.kt`, 가져다 쓰기만)
 
@@ -219,6 +221,24 @@ Morphology.isAvailable          // Kiwi를 못 불러왔으면 false → 이때�
 - **"민준이가"의 `이`는 조사가 아니라 접미사 `XSN`입니다.**
 - **테스트도 진짜 Kiwi로 돌립니다.** 처음 한 번은 모델(약 88MB)을 자동으로 내려받으니 인터넷이 필요합니다.
 - **결과가 이상하면** 먼저 `println(Morphology.analyze("문장"))` 으로 품사를 찍어 보세요. AI에게도 이 결과를 보여 주면 훨씬 정확하게 고칩니다.
+
+### 병렬 처리 (`core/Parallel.kt`, 가져다 쓰기만)
+
+형태소 분석은 느립니다(한 줄에 약 1ms). 회차가 여러 개면 **회차마다 따로 돌리지 말고 `Parallel.map` 으로 한꺼번에** 돌려 주세요. 모든 CPU 코어가 나눠서 처리합니다.
+
+```kotlin
+// 회차별로 계산 - 결과 순서는 chapters 순서 그대로
+val perChapter = Parallel.map(project.chapters()) { chapter ->
+    val text = Files.readString(chapter.path)
+    WordStats.topWords(text)          // 안에서 Morphology를 써도 됩니다
+}
+Parallel.forEach(items) { ... }      // 결과가 필요 없을 때 (순서는 보장 안 됨)
+```
+
+- `Morphology.analyze` / `analyzeLines` 는 어느 스레드에서 불러도 안전하고, `analyzeLines` 는 이미 줄 단위로 병렬입니다.
+- `Parallel.map` 안에서 또 `Parallel.map` 이나 `analyzeLines` 를 불러도 됩니다(멈추지 않습니다).
+- **`Parallel.map` 안에서 위젯·필드 같은 공유 상태를 고치지 마세요.** 계산 결과만 돌려주고, 화면 갱신은 결과를 받은 뒤에 합니다.
+- **패널에서 무거운 계산을 바로 하면 화면이 멈춥니다.** `refresh()` 에서 계산할 때는 백그라운드 스레드에서 돌리고, 결과를 `SwingUtilities.invokeLater { ... }` 로 위젯에 넣어 주세요(예: `ProjectWorkspaceWidget.relint`). 특히 `StatsPane`(작업 2)·`SearchPane`(작업 4)은 지금 화면 스레드에서 계산하고 있습니다.
 
 ### 2차 할 일
 
@@ -310,6 +330,22 @@ object MorphemeDiff { fun classify(before: String, after: String): WordChangeKin
 품사가 헷갈리면 먼저 Morphology.analyze 결과를 println 으로 찍는 테스트를 만들어 확인해 주세요.
 이번 할 일: [3-5. CharacterSuggestions.suggest]
 ```
+
+---
+
+## Texted 문서 형식 (2026-10-30)
+
+이제 새로 만드는 파일은 마크다운(`.md`)이 아니라 Texted 전용 형식입니다. **세 형식 모두 마크업이 없는 순수 텍스트**(UTF-8, 문단 = 한 줄)이고, 확장자와 들어가는 폴더만 다릅니다.
+
+| 형식 | 확장자 | 폴더 | 제목·이름 | 내용 |
+| --- | --- | --- | --- | --- |
+| 에피소드 | `.episode` | `manuscript/` | 파일 이름에서 번호를 뺀 것 (`03. 낯선 손님.episode` → `낯선 손님`) | 본문만. `# 제목` 줄 없음 |
+| 캐릭터 | `.character` | `characters/` | 파일 이름 (`한서연.character`) | `별칭: 서연, 한 대리` 줄(선택) + 설명 |
+| 세계관 | `.world` | `world/` | 파일 이름 | 캐릭터와 같음 |
+
+- 코드에서는 `project/NovelFormat.kt`(형식 목록), `project/ProjectFiles.kt`(만들기·이름 바꾸기·확장자 바꾸기)를 쓰세요. 회차 제목은 지금처럼 `ChapterTitle.of(path, text)` 로 얻으면 형식에 맞게 나옵니다.
+- **`.md`·`.txt` 도 계속 읽힙니다.** `ProjectNode.File.isChapter` 가 다섯 가지 확장자를 모두 원고로 봅니다. 확장자에 `.md` 를 직접 비교하는 코드가 있으면 `isChapter` 나 `NovelFormat` 으로 바꿔 주세요.
+- 새 프로젝트의 첫 회차는 `01. 제1화.episode`(빈 파일)입니다. 테스트에서 가짜 원고로 첫 회차를 대신하려면 `ProjectService.FIRST_CHAPTER` 를 지운 뒤 쓰세요(예: `test/export/ExportTest.kt`).
 
 ---
 
