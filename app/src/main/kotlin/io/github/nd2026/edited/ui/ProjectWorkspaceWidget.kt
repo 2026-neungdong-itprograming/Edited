@@ -187,6 +187,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         showLeftPane(0)
         problems.onNavigate = { path, line -> openFile(path); editor.reveal(line) }
         search.onOpenHit = { hit -> openFile(hit.path); editor.reveal(hit.line, hit.column) }
+        search.onQueryChanged = { updateFindHighlight() }
         search.beforeReplace = { session?.saveAll() }
         search.onReplaced = { changed ->
             session?.reloadFromDisk()
@@ -267,7 +268,8 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
                 ContextMenuItem("복사", "Ctrl+C", hasDocument) { text?.copySelection() },
                 ContextMenuItem("붙여넣기", "Ctrl+V", hasDocument) { text?.pasteClipboard() },
                 ContextMenuItem("모두 선택", "Ctrl+A", hasDocument) { text?.selectAll() },
-                ContextMenuItem("찾기·바꾸기", "Ctrl+Shift+F", hasProject) { showSearch() },
+                ContextMenuItem("찾기", "Ctrl+F", hasProject) { showSearch() },
+                ContextMenuItem("바꾸기", "Ctrl+H", hasProject) { showSearch(replace = true) },
             )
             2 -> PANE_NAMES.mapIndexed { i, name ->
                 ContextMenuItem((if (rail.selectedIndex == i) "✓  " else "     ") + name, "Alt+${i + 1}") { showLeftPane(i) }
@@ -407,15 +409,25 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
     fun showLeftPane(index: Int) {
         leftPanes.forEachIndexed { i, pane -> pane.visible = i == index }
         rail.selectedIndex = index
+        updateFindHighlight()
         requestRepaint()
     }
 
-    /** Opens the find pane, prefilled with the editor's selection if there is one. */
-    fun showSearch() {
+    /** Find matches are marked in the editor while the 찾기·바꾸기 pane is open, and cleared when another pane is. */
+    private fun updateFindHighlight() {
+        editor.highlightQuery = if (search.visible) search.queryText else ""
+    }
+
+    /**
+     * Opens the find pane, prefilled with the editor's selection if there is one, and puts the cursor
+     * in the search field (with [replace], the replacement field) so the writer can type right away.
+     */
+    fun showSearch(replace: Boolean = false) {
         showLeftPane(1)
         session?.activeDocument?.textArea?.let { area ->
             area.selectionRange()?.takeUnless(IntRange::isEmpty)?.let { search.searchFor(area.textInRange(it.first, it.last + 1)) }
         }
+        hostPane?.focusManager?.requestFocus(search.shortcutField(replace))
     }
 
     /** Writes `export/<title>.txt` and `.epub` into the project folder. */
@@ -668,7 +680,13 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             "새 프로젝트 / 폴더 열기\tCtrl+N / Ctrl+O",
             "저장 (기록·검수·분량 갱신)\tCtrl+S",
             "탭 닫기\tCtrl+F4",
-            "찾기·바꾸기\tCtrl+Shift+F",
+            "실행 취소 / 다시 실행\tCtrl+Z / Ctrl+Y",
+            "낱말 단위로 이동\tCtrl+← / Ctrl+→",
+            "낱말 단위로 지우기\tCtrl+Backspace / Ctrl+Delete",
+            "원고 처음 / 끝으로\tCtrl+Home / Ctrl+End",
+            "한 화면 위 / 아래\tPageUp / PageDown",
+            "찾기 (원고 전체)\tCtrl+F / Ctrl+Shift+F",
+            "바꾸기 (원고 전체)\tCtrl+H",
             "내보내기 (TXT·EPUB)\tCtrl+Shift+E",
             "회차 본문 복사\tCtrl+Shift+C",
             "AI로 문장 다듬기 (선택 또는 지금 줄)\tCtrl+Shift+R",
@@ -1159,6 +1177,10 @@ private class DocumentEditorWidget : Container() {
     var revealDirectives = false
         set(value) { field = value; activeEditor?.revealDirectives = value }
 
+    /** Find text marked in the active editor; kept here so it carries over when another tab is opened. */
+    var highlightQuery: String = ""
+        set(value) { field = value; activeEditor?.highlightQuery = value }
+
     /** Editor text size chosen with Ctrl+wheel; null until the author zooms (theme default). */
     private var editorFontSize: Float? = null
 
@@ -1180,6 +1202,7 @@ private class DocumentEditorWidget : Container() {
             activeEditor = document?.let {
                 TextAreaWidget(it.textArea, analyzerFor(it.path)).apply {
                     revealDirectives = this@DocumentEditorWidget.revealDirectives
+                    highlightQuery = this@DocumentEditorWidget.highlightQuery
                     // Ctrl+wheel zoom applies to every tab, not just the one it was done in.
                     fontSize = editorFontSize
                     onFontSizeChanged = { size -> editorFontSize = size }

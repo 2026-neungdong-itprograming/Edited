@@ -108,6 +108,17 @@ class TextAreaWidget(
             requestRepaint()
         }
 
+    /**
+     * Text marked wherever it appears, e.g. the find pane's query; empty marks nothing. Only the
+     * visible lines are scanned while painting, so this costs nothing for off-screen text.
+     */
+    var highlightQuery: String = ""
+        set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
     /** Spelling results per line text; visible lines repeat frame after frame. EDT only. */
     private val spellingCache = object : LinkedHashMap<String, List<Misspelling>>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Misspelling>>?) = size > 2048
@@ -192,6 +203,7 @@ class TextAreaWidget(
                 widest = maxOf(widest, fm.stringWidth(lineText) + fm.stringWidth(composedText))
             } else {
                 val layout = layoutOf(line, lineText)
+                paintMatches(g, metrics, line, layout)
                 paintSelection(g, metrics, line, layout)
                 paintLine(g, metrics, line, layout, suppression)
                 widest = maxOf(widest, xOf(layout, lineText.length, fm::stringWidth) - TEXT_INSET)
@@ -536,6 +548,48 @@ class TextAreaWidget(
         g.drawLine(compositionX, baseline + 2, compositionX + compositionWidth, baseline + 2)
     }
 
+    /** Start columns of every non-overlapping [highlightQuery] occurrence in [lineText], left to right. */
+    fun highlightColumns(lineText: String): List<Int> {
+        val query = highlightQuery
+        if (query.isEmpty()) return emptyList()
+        val columns = ArrayList<Int>()
+        var from = 0
+        while (true) {
+            val column = lineText.indexOf(query, from)
+            if (column < 0) break
+            columns += column
+            from = column + query.length
+        }
+        return columns
+    }
+
+    /**
+     * Marks find matches on [line]. The match the caret is in (where a click on a result lands)
+     * is drawn stronger and outlined, so the writer sees which one they are on.
+     */
+    private fun paintMatches(g: Graphics2D, metrics: PixelMetrics, line: Int, layout: LineLayout) {
+        val columns = highlightColumns(layout.text)
+        if (columns.isEmpty()) return
+        val fm = g.fontMetrics
+        val length = highlightQuery.length
+        val lineStart = textArea.lineStart(line)
+        val caretColumn = textArea.caret - lineStart
+        val y = metrics.topOf(line) - scrollY
+        val accent = theme.warning
+        for (column in columns) {
+            // Through the line layout, so a match after a folded directive chip lines up with its text.
+            val x = xOf(layout, column, fm::stringWidth)
+            val width = (xOf(layout, column + length, fm::stringWidth) - x).coerceAtLeast(2)
+            val current = caretColumn in column..column + length
+            g.color = accent.withAlpha(if (current) 150 else 70)
+            g.fillRect(x, y + 1, width, metrics.lineHeight - 2)
+            if (current) {
+                g.color = accent
+                g.drawRect(x, y + 1, width - 1, metrics.lineHeight - 3)
+            }
+        }
+    }
+
     private fun paintSelection(g: Graphics2D, metrics: PixelMetrics, line: Int, layout: LineLayout) {
         val lineText = layout.text
         val selection = textArea.selectionRange()?.takeUnless(IntRange::isEmpty) ?: return
@@ -565,7 +619,8 @@ class TextAreaWidget(
         modifiers and AwtInputEvent.ALT_DOWN_MASK != 0 && modifiers and AwtInputEvent.CTRL_DOWN_MASK == 0
 
     private fun handleKey(event: InputEvent.KeyInput): Boolean = when (event) {
-        is InputEvent.KeyTyped -> handleTyped(event.char)
+        // Ctrl+Backspace is handled on key press (word delete); some platforms also type a '\b' for it.
+        is InputEvent.KeyTyped -> event.char == '\b' && event.modifiers and menuShortcutMask != 0 || handleTyped(event.char)
         is InputEvent.KeyPressed -> handlePressed(event)
         is InputEvent.KeyReleased -> false
     }
@@ -581,19 +636,29 @@ class TextAreaWidget(
     }
 
     private fun handlePressed(event: InputEvent.KeyPressed): Boolean {
+        val extend = event.modifiers and AwtInputEvent.SHIFT_DOWN_MASK != 0
         if (event.modifiers and menuShortcutMask != 0) {
-            return when (event.keyCode) {
-                KeyEvent.VK_C -> copySelection()
-                KeyEvent.VK_X -> cutSelection()
-                KeyEvent.VK_V -> pasteClipboard()
-                KeyEvent.VK_A -> selectAll()
-                KeyEvent.VK_Z -> if (event.modifiers and AwtInputEvent.SHIFT_DOWN_MASK != 0) redo() else undo()
-                KeyEvent.VK_Y -> redo()
+            if (event.keyCode in NAVIGATION_KEYS || event.keyCode in WORD_DELETE_KEYS) textArea.breakUndoGroup()
+            val handled = when (event.keyCode) {
+                // Only the plain Ctrl forms: Ctrl+Shift+C/X/V/A/Y belong to the window keymap (e.g. 회차 본문 복사).
+                KeyEvent.VK_C -> !extend && copySelection()
+                KeyEvent.VK_X -> !extend && cutSelection()
+                KeyEvent.VK_V -> !extend && pasteClipboard()
+                KeyEvent.VK_A -> !extend && selectAll()
+                KeyEvent.VK_Y -> !extend && redo()
+                KeyEvent.VK_Z -> if (extend) redo() else undo()
+                KeyEvent.VK_LEFT -> { textArea.moveCaretTo(previousWordStart(textArea.caret), extend); true }
+                KeyEvent.VK_RIGHT -> { textArea.moveCaretTo(nextWordEnd(textArea.caret), extend); true }
+                KeyEvent.VK_HOME -> { textArea.moveCaretTo(0, extend); true }
+                KeyEvent.VK_END -> { textArea.moveCaretTo(textArea.length, extend); true }
+                KeyEvent.VK_BACK_SPACE -> !extend && deleteWord(forward = false)
+                KeyEvent.VK_DELETE -> !extend && deleteWord(forward = true)
                 else -> false
             }
+            if (handled) resetCaretBlink()
+            return handled
         }
 
-        val extend = event.modifiers and AwtInputEvent.SHIFT_DOWN_MASK != 0
         if (event.keyCode in NAVIGATION_KEYS) textArea.breakUndoGroup()
         when (event.keyCode) {
             KeyEvent.VK_LEFT -> textArea.moveCaretTo(textArea.caret - 1, extend)
@@ -602,11 +667,61 @@ class TextAreaWidget(
             KeyEvent.VK_DOWN -> moveCaretVertically(1, extend)
             KeyEvent.VK_HOME -> textArea.moveCaretTo(textArea.lineStart(textArea.lineOf(textArea.caret)), extend)
             KeyEvent.VK_END -> textArea.moveCaretTo(textArea.lineEnd(textArea.lineOf(textArea.caret)), extend)
+            KeyEvent.VK_PAGE_UP -> movePage(-1, extend)
+            KeyEvent.VK_PAGE_DOWN -> movePage(1, extend)
             KeyEvent.VK_DELETE -> deleteForward()
             else -> return false
         }
         resetCaretBlink()
         return true
+    }
+
+    /** Moves the caret and the view together by one screen of lines, so the caret keeps its place on screen. */
+    private fun movePage(direction: Int, extend: Boolean) {
+        val lines = (bounds.height / lineHeight - 1).coerceAtLeast(1)
+        scrollTo(y = scrollY + direction * lines * lineHeight)
+        moveCaretVertically(direction * lines, extend)
+    }
+
+    /** Ctrl+Backspace / Ctrl+Delete: removes the selection, or the word before / after the caret. */
+    private fun deleteWord(forward: Boolean): Boolean {
+        val selection = textArea.selectionRange()?.takeUnless(IntRange::isEmpty)
+        when {
+            selection != null -> textArea.delete(selection.first, selection.last + 1)
+            forward -> textArea.delete(textArea.caret, nextWordEnd(textArea.caret))
+            else -> textArea.delete(previousWordStart(textArea.caret), textArea.caret)
+        }
+        return true
+    }
+
+    /** Where Ctrl+→ lands: past the run of same-kind characters at [from] and the spaces after it. A line break is its own stop. */
+    private fun nextWordEnd(from: Int): Int {
+        val length = textArea.length
+        if (from >= length) return length
+        val kind = charKind(textArea.charAt(from))
+        if (kind == KIND_NEWLINE) return from + 1
+        var pos = from
+        if (kind != KIND_SPACE) while (pos < length && charKind(textArea.charAt(pos)) == kind) pos++
+        while (pos < length && charKind(textArea.charAt(pos)) == KIND_SPACE) pos++
+        return pos
+    }
+
+    /** Where Ctrl+← lands: back over spaces, then to the start of the run of same-kind characters. A line break is its own stop. */
+    private fun previousWordStart(from: Int): Int {
+        var pos = from.coerceAtMost(textArea.length)
+        while (pos > 0 && charKind(textArea.charAt(pos - 1)) == KIND_SPACE) pos--
+        if (pos == 0) return 0
+        val kind = charKind(textArea.charAt(pos - 1))
+        if (kind == KIND_NEWLINE) return if (pos == from) pos - 1 else pos
+        while (pos > 0 && charKind(textArea.charAt(pos - 1)) == kind) pos--
+        return pos
+    }
+
+    private fun charKind(c: Char): Int = when {
+        c == '\n' -> KIND_NEWLINE
+        c.isWhitespace() -> KIND_SPACE
+        c.isLetterOrDigit() || c == '_' -> KIND_WORD
+        else -> KIND_PUNCTUATION
     }
 
     override fun onMouseEvent(event: InputEvent.MouseInput): Boolean = when (event) {
@@ -889,7 +1004,13 @@ class TextAreaWidget(
         private const val CARET_BLINK_MILLIS = 530L
         private val NAVIGATION_KEYS = setOf(
             KeyEvent.VK_LEFT, KeyEvent.VK_RIGHT, KeyEvent.VK_UP, KeyEvent.VK_DOWN, KeyEvent.VK_HOME, KeyEvent.VK_END,
+            KeyEvent.VK_PAGE_UP, KeyEvent.VK_PAGE_DOWN,
         )
+        private val WORD_DELETE_KEYS = setOf(KeyEvent.VK_BACK_SPACE, KeyEvent.VK_DELETE)
+        private const val KIND_SPACE = 0
+        private const val KIND_WORD = 1
+        private const val KIND_PUNCTUATION = 2
+        private const val KIND_NEWLINE = 3
         private val menuShortcutMask = try {
             Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
         } catch (_: Exception) {

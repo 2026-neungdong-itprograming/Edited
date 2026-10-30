@@ -6,10 +6,12 @@ import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.event.InputEvent
 import io.github.nd2026.edited.lexer.MorphemeAnalyzer
 import io.github.nd2026.edited.lexer.Morpheme
+import io.github.nd2026.edited.ui.components.TextFieldWidget
 import io.github.nd2026.edited.ui.docking.Axis
 import io.github.nd2026.edited.ui.editor.EditorDocument
 import io.github.nd2026.edited.ui.editor.EditorGroupWidget
 import io.github.nd2026.edited.ui.editor.EditorPaneWidget
+import io.github.nd2026.edited.ui.panes.SearchPane
 import java.awt.Rectangle
 import java.awt.event.InputEvent as Awt
 import java.awt.event.KeyEvent
@@ -117,6 +119,91 @@ class TextAreaWidgetTest {
         w.onMouseEvent(InputEvent.MousePressed(10, 5, java.awt.event.MouseEvent.BUTTON1, 0))
         // 10px into a view scrolled by 150px lands past column 0; at the font's width this is a few columns in.
         assertTrue(w.textArea.caret in 5..40, "caret=${w.textArea.caret}")
+    }
+
+    private fun TextAreaWidget.press(keyCode: Int, modifiers: Int = 0) = onKeyEvent(InputEvent.KeyPressed(keyCode, modifiers))
+
+    @Test
+    fun ctrlShiftClipboardKeysAreLeftToTheWindowKeymap() {
+        val w = widget("민준이 웃었다.")
+        w.press(KeyEvent.VK_A, ctrl)
+        // With a selection, Ctrl+Shift+C must still reach 회차 본문 복사 instead of being eaten as a plain copy.
+        for (key in listOf(KeyEvent.VK_C, KeyEvent.VK_X, KeyEvent.VK_V, KeyEvent.VK_A, KeyEvent.VK_Y)) {
+            assertEquals(false, w.press(key, ctrl or Awt.SHIFT_DOWN_MASK), "Ctrl+Shift+${KeyEvent.getKeyText(key)}")
+        }
+        assertEquals("민준이 웃었다.", w.textArea.snapshot())
+    }
+
+    @Test
+    fun ctrlArrowsMoveByWordAndStopAtLineBreaks() {
+        val w = widget("민준이가 문을 열었다.\n서연은 웃었다.")
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(5, w.textArea.caret) // past "민준이가 "
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(8, w.textArea.caret) // past "문을 "
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(11, w.textArea.caret) // "열었다" ends before the period
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(12, w.textArea.caret) // the period
+        w.press(KeyEvent.VK_RIGHT, ctrl)
+        assertEquals(13, w.textArea.caret) // the line break is its own stop
+        w.press(KeyEvent.VK_LEFT, ctrl)
+        assertEquals(12, w.textArea.caret)
+        w.press(KeyEvent.VK_LEFT, ctrl)
+        assertEquals(11, w.textArea.caret)
+        w.press(KeyEvent.VK_LEFT, ctrl)
+        assertEquals(8, w.textArea.caret)
+        w.press(KeyEvent.VK_LEFT, ctrl or Awt.SHIFT_DOWN_MASK)
+        assertEquals(5 until 8, w.textArea.selectionRange())
+    }
+
+    @Test
+    fun ctrlBackspaceAndCtrlDeleteRemoveOneWordAndUndoInOneStep() {
+        val w = widget("그는 문을 열었다")
+        w.textArea.moveCaretTo(w.textArea.length)
+        w.press(KeyEvent.VK_BACK_SPACE, ctrl)
+        assertEquals("그는 문을 ", w.textArea.snapshot())
+        // Some platforms also type a '\b' for Ctrl+Backspace; it must not delete a second character.
+        assertTrue(w.onKeyEvent(InputEvent.KeyTyped('\b', ctrl)))
+        assertEquals("그는 문을 ", w.textArea.snapshot())
+        w.press(KeyEvent.VK_Z, ctrl)
+        assertEquals("그는 문을 열었다", w.textArea.snapshot())
+
+        w.textArea.moveCaretTo(0)
+        w.press(KeyEvent.VK_DELETE, ctrl)
+        assertEquals("문을 열었다", w.textArea.snapshot())
+    }
+
+    @Test
+    fun ctrlHomeEndJumpToDocumentEdgesAndPageKeysMoveAScreen() {
+        val w = widget("line\n".repeat(200), height = 100)
+        w.press(KeyEvent.VK_END, ctrl)
+        assertEquals(w.textArea.length, w.textArea.caret)
+        w.press(KeyEvent.VK_HOME, ctrl)
+        assertEquals(0, w.textArea.caret)
+
+        val page = (w.bounds.height / w.lineHeight - 1).coerceAtLeast(1)
+        w.press(KeyEvent.VK_PAGE_DOWN)
+        assertEquals(page, w.textArea.lineOf(w.textArea.caret))
+        assertTrue(w.scrollY > 0)
+        w.press(KeyEvent.VK_PAGE_UP)
+        assertEquals(0, w.textArea.lineOf(w.textArea.caret))
+        assertEquals(0, w.scrollY)
+    }
+
+    @Test
+    fun findHighlightMarksEveryOccurrenceOnALine() {
+        val w = widget("민준이 웃자 민준이 따라 웃었다.\n아무도 없었다.")
+        assertEquals(emptyList(), w.highlightColumns(w.textArea.lineText(0)), "nothing is marked without a query")
+        w.highlightQuery = "민준"
+        assertEquals(listOf(0, 7), w.highlightColumns(w.textArea.lineText(0)))
+        assertEquals(emptyList(), w.highlightColumns(w.textArea.lineText(1)))
+        w.highlightQuery = "웃"
+        assertEquals(listOf(4, 14), w.highlightColumns(w.textArea.lineText(0)))
+        w.textArea.moveCaretTo(4) // the "current" match is painted differently; painting must not fail either way
+        paint(w)
+        w.highlightQuery = ""
+        assertEquals(emptyList(), w.highlightColumns(w.textArea.lineText(0)))
     }
 }
 
@@ -242,6 +329,46 @@ class EditorPaneWidgetTest {
         val colors = (0 until 400).map { image.getRGB(stripeX, it) }.toSet()
         assertNotEquals(1, colors.size)
         pane.onDetach()
+    }
+}
+
+class FindShortcutTest {
+    @Test
+    fun ctrlHAndCtrlBackspaceDoNotDeleteInATextField() {
+        val field = TextFieldWidget("민준")
+        // Ctrl+H opens 바꾸기 and the platform also types a '\b'; it must not eat the selected search text.
+        field.selectAll()
+        assertTrue(field.onKeyEvent(InputEvent.KeyTyped('\b', ctrl)))
+        assertEquals("민준", field.text)
+        field.onKeyEvent(InputEvent.KeyTyped('\b', 0))
+        assertEquals("", field.text)
+    }
+
+    @Test
+    fun ctrlShiftKeysInATextFieldReachTheWindowKeymap() {
+        val field = TextFieldWidget("민준")
+        assertEquals(false, field.onKeyEvent(InputEvent.KeyPressed(KeyEvent.VK_C, ctrl or Awt.SHIFT_DOWN_MASK)))
+        assertEquals(false, field.onKeyEvent(InputEvent.KeyPressed(KeyEvent.VK_F, ctrl)))
+        assertEquals(false, field.onKeyEvent(InputEvent.KeyPressed(KeyEvent.VK_H, ctrl)))
+    }
+
+    @Test
+    fun findShortcutsPickTheFieldAndSelectItsTextForTypingOver() {
+        val pane = SearchPane()
+        pane.searchFor("민준")
+        val find = pane.shortcutField()
+        assertEquals("민준", find.text)
+        "서".forEach { find.onKeyEvent(InputEvent.KeyTyped(it, 0)) }
+        assertEquals("서", find.text, "typing after the shortcut replaces the old search text")
+
+        val reported = mutableListOf<String>()
+        pane.onQueryChanged = { reported += it }
+        "준".forEach { find.onKeyEvent(InputEvent.KeyTyped(it, 0)) }
+        assertEquals("서준", pane.queryText)
+        assertEquals("서준", reported.last(), "the editor highlight follows what is typed in the find field")
+
+        val replace = pane.shortcutField(replace = true)
+        assertTrue(find !== replace, "Ctrl+H must focus the replacement field, not the search field")
     }
 }
 

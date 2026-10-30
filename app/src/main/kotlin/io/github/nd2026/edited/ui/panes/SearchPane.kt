@@ -28,6 +28,12 @@ class SearchPane : Container() {
     /** Called after a replace-all with the number of files changed, so open documents can be reloaded. */
     var onReplaced: (Int) -> Unit = {}
 
+    /** Called with the search text every time the search runs, so the editor can mark the matches. */
+    var onQueryChanged: (String) -> Unit = {}
+
+    /** The text currently being searched for. */
+    val queryText: String get() = query.text
+
     private val query = TextFieldWidget(accessibleLabel = "찾을 내용", placeholder = "찾기")
     private val replacement = TextFieldWidget(accessibleLabel = "바꿀 내용", placeholder = "바꾸기 (비우면 찾기만)")
     private val replaceAll = ButtonWidget("모두 바꾸기", ButtonWidget.Style.FILLED)
@@ -55,6 +61,13 @@ class SearchPane : Container() {
         search()
     }
 
+    /**
+     * The field a find shortcut should put the cursor in: the search field, or with [replace] the
+     * replacement field. Its text is selected so the writer can type over it straight away.
+     */
+    fun shortcutField(replace: Boolean = false): TextFieldWidget =
+        (if (replace) replacement else query).also { it.selectAll() }
+
     fun search() {
         val p = project
         val q = query.text
@@ -69,6 +82,7 @@ class SearchPane : Container() {
             else -> "${hits.size}개 찾음"
         }
         requestRepaint()
+        onQueryChanged(q)
     }
 
     private fun applyReplace() {
