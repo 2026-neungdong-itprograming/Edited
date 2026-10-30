@@ -415,7 +415,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
 
     /** Find matches are marked in the editor while the 찾기·바꾸기 pane is open, and cleared when another pane is. */
     private fun updateFindHighlight() {
-        editor.highlightQuery = if (search.visible) search.queryText else ""
+        editor.highlightQuery = if (search.visible) search.highlightText else ""
     }
 
     /**

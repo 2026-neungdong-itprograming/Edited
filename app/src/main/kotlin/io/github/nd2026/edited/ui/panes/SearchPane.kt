@@ -2,6 +2,7 @@ package io.github.nd2026.edited.ui.panes
 
 import io.github.nd2026.edited.event.InputEvent
 import io.github.nd2026.edited.project.Project
+import io.github.nd2026.edited.search.LemmaSearch
 import io.github.nd2026.edited.search.ProjectReplace
 import io.github.nd2026.edited.search.ProjectSearch
 import io.github.nd2026.edited.search.ReplacePreview
@@ -15,6 +16,10 @@ import java.awt.Rectangle
 /**
  * Manuscript-wide find (and replace-all). With an empty replacement field the list shows matches;
  * once a replacement is typed it shows each affected line before → after, and the button applies it.
+ *
+ * 4-6. "기본형으로 찾기" ([lemmaMode]) finds every inflected form of the word typed: "먹다" matches 먹었다,
+ * 먹고, 먹는 ([LemmaSearch]). It only finds - there is nothing sensible to replace a dictionary form with -
+ * and the analysis runs in the background.
  */
 class SearchPane : Container() {
     var project: Project? = null
@@ -34,9 +39,28 @@ class SearchPane : Container() {
     /** The text currently being searched for. */
     val queryText: String get() = query.text
 
+    /** The text the editor should mark: the query itself, or nothing in [lemmaMode], where the matches are other forms of it. */
+    val highlightText: String get() = if (lemmaMode) "" else query.text
+
+    /** Find by dictionary form instead of by characters ("기본형으로 찾기"). */
+    var lemmaMode: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            lemmaToggle.style = if (value) ButtonWidget.Style.FILLED else ButtonWidget.Style.TEXT
+            lemmaToggle.label = if (value) "✓ 기본형으로 찾기" else "기본형으로 찾기"
+            layout()
+            search()
+        }
+
     private val query = TextFieldWidget(accessibleLabel = "찾을 내용", placeholder = "찾기")
     private val replacement = TextFieldWidget(accessibleLabel = "바꿀 내용", placeholder = "바꾸기 (비우면 찾기만)")
     private val replaceAll = ButtonWidget("모두 바꾸기", ButtonWidget.Style.FILLED)
+    private val lemmaToggle = ButtonWidget("기본형으로 찾기")
+    private val work = BackgroundWork()
+
+    /** Waits for a running lemma search (tests only; the app has an event loop to wait on). */
+    internal fun awaitIdle(timeoutMillis: Long = 30_000) = work.awaitIdle(timeoutMillis)
 
     var hits: List<SearchHit> = emptyList()
         private set
@@ -47,11 +71,12 @@ class SearchPane : Container() {
     private var message = ""
 
     init {
-        listOf(query, replacement, replaceAll).forEach(::addChild)
+        listOf(query, replacement, replaceAll, lemmaToggle).forEach(::addChild)
         query.onChange = { search() }
         replacement.onChange = { search() }
         query.onSubmit = { hits.firstOrNull()?.let(onOpenHit) }
         replaceAll.onClick = ::applyReplace
+        lemmaToggle.onClick = { lemmaMode = !lemmaMode }
         replaceAll.enabled = false
     }
 
@@ -72,17 +97,44 @@ class SearchPane : Container() {
         val p = project
         val q = query.text
         val r = replacement.text
-        hits = if (p == null) emptyList() else runCatching { ProjectSearch.find(p, q) }.getOrDefault(emptyList())
-        previews = if (p == null || r.isEmpty()) emptyList() else runCatching { ProjectReplace.preview(p, q, r) }.getOrDefault(emptyList())
-        replaceAll.enabled = previews.isNotEmpty()
         firstRow = 0
-        message = when {
-            q.isEmpty() -> ""
-            r.isNotEmpty() -> "${previews.size}줄이 바뀝니다 (조사 자동 맞춤)"
-            else -> "${hits.size}개 찾음"
+        if (lemmaMode) {
+            searchByLemma(p, q, r)
+        } else {
+            work.cancel()
+            hits = if (p == null) emptyList() else runCatching { ProjectSearch.find(p, q) }.getOrDefault(emptyList())
+            previews = if (p == null || r.isEmpty()) emptyList() else runCatching { ProjectReplace.preview(p, q, r) }.getOrDefault(emptyList())
+            replaceAll.enabled = previews.isNotEmpty()
+            message = when {
+                q.isEmpty() -> ""
+                r.isNotEmpty() -> "${previews.size}줄이 바뀝니다 (조사 자동 맞춤)"
+                else -> "${hits.size}개 찾음"
+            }
         }
         requestRepaint()
         onQueryChanged(q)
+    }
+
+    /** [lemmaMode] search: the hits arrive from the background; nothing can be replaced here. */
+    private fun searchByLemma(p: Project?, q: String, r: String) {
+        previews = emptyList()
+        replaceAll.enabled = false
+        hits = emptyList()
+        if (p == null || q.isBlank()) {
+            work.cancel()
+            message = ""
+            return
+        }
+        message = "기본형으로 찾는 중…"
+        work.run({ LemmaSearch.find(p, q) }) { found ->
+            hits = found
+            message = when {
+                found.isEmpty() -> "찾지 못했습니다 (기본형 기준)"
+                r.isNotEmpty() -> "${found.size}개 찾음 (기본형 찾기에서는 바꾸지 않습니다)"
+                else -> "${found.size}개 찾음 (기본형)"
+            }
+            requestRepaint()
+        }
     }
 
     private fun applyReplace() {
@@ -107,6 +159,7 @@ class SearchPane : Container() {
         replacement.setBounds(b.x + 10, y, width, TextFieldWidget.HEIGHT)
         y += TextFieldWidget.HEIGHT + 6
         replaceAll.measure().let { replaceAll.setBounds(b.x + b.width - 10 - it.width, y, it.width, ButtonWidget.HEIGHT) }
+        lemmaToggle.measure().let { lemmaToggle.setBounds(b.x + 10, y, it.width, ButtonWidget.HEIGHT) }
     }
 
     override fun onPaint(g: Graphics2D, localRegion: Rectangle) {

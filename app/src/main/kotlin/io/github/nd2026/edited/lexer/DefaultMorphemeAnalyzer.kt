@@ -48,6 +48,15 @@ object DefaultMorphemeAnalyzer : MorphemeAnalyzer {
 
     override val isThreadSafe: Boolean get() = true
 
+    /**
+     * Blocks until every [setProjectWords] rebuild queued so far has finished (at most [timeoutSeconds]).
+     * Whole-manuscript computations (character appearances, suggestions, searches) call this first so
+     * they don't read the manuscript with a stale name dictionary; never call it on the EDT.
+     */
+    fun awaitDictionary(timeoutSeconds: Long = 30) {
+        runCatching { reloader.submit {}.get(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS) }
+    }
+
     override fun analyze(text: String, baseOffset: Int): List<Morpheme> =
         delegate?.analyze(text, baseOffset) ?: emptyList()
 

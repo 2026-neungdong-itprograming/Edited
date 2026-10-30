@@ -32,7 +32,7 @@ object ProjectSearch {
         return hits
     }
 
-    private fun preview(line: String, column: Int): String {
+    internal fun preview(line: String, column: Int): String {
         val start = (column - PREVIEW_CONTEXT).coerceAtLeast(0)
         val end = (column + PREVIEW_CONTEXT * 2).coerceAtMost(line.length)
         return (if (start > 0) "…" else "") + line.substring(start, end).trim() + (if (end < line.length) "…" else "")

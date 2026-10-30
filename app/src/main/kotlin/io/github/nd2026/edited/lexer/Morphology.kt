@@ -68,6 +68,9 @@ object Morphology {
         override val isThreadSafe: Boolean get() = true
     }
 
+    /** Waits for a pending character-name dictionary rebuild; see [DefaultMorphemeAnalyzer.awaitDictionary]. Off the EDT only. */
+    fun awaitDictionary() = DefaultMorphemeAnalyzer.awaitDictionary()
+
     /** Drops memoized results; the next [analyze] calls go to Kiwi again. */
     fun clearCache() = shards.forEach { synchronized(it) { it.clear() } }
 

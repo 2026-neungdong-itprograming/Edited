@@ -19,6 +19,12 @@ object ChapterText {
 
     fun of(path: Path): String = plain(Files.readString(path))
 
+    /**
+     * One line of hashtags for a serial platform's tag box, e.g. `#서연 #마법학교` ([ChapterTags.of]: names first,
+     * then common nouns). Empty when there is nothing to tag, so the caller can skip the line.
+     */
+    fun hashtags(text: String, limit: Int = 5): String = ChapterTags.of(text, limit).joinToString(" ") { "#$it" }
+
     fun plain(markdown: String): String {
         // Directives (@Suppress …) are notes to Texted; readers never see them.
         val lines = Directives.strip(markdown).lines().map { raw ->

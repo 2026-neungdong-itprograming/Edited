@@ -26,13 +26,14 @@ object EpubExporter {
         val author = project.manifest.author.ifBlank { "작가 미상" }
         val language = project.manifest.language
         val id = "urn:uuid:${UUID.nameUUIDFromBytes(project.root.toAbsolutePath().toString().toByteArray())}"
+        val subjects = ChapterTags.ofProject(project)
 
         Files.newOutputStream(target).use { out ->
             ZipOutputStream(out).use { zip ->
                 // The mimetype entry must come first and be stored uncompressed.
                 stored(zip, "mimetype", "application/epub+zip".toByteArray())
                 text(zip, "META-INF/container.xml", CONTAINER)
-                text(zip, "OEBPS/content.opf", opf(id, title, author, language, chapters))
+                text(zip, "OEBPS/content.opf", opf(id, title, author, language, subjects, chapters))
                 text(zip, "OEBPS/nav.xhtml", nav(title, language, chapters))
                 text(zip, "OEBPS/toc.ncx", ncx(id, title, chapters))
                 text(zip, "OEBPS/style.css", STYLE)
@@ -59,10 +60,12 @@ object EpubExporter {
 
     internal fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun opf(id: String, title: String, author: String, language: String, chapters: List<Chapter>): String {
+    private fun opf(id: String, title: String, author: String, language: String, subjects: List<String>, chapters: List<Chapter>): String {
         val modified = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString()
         val items = chapters.joinToString("\n") { """    <item id="${it.file.removeSuffix(".xhtml")}" href="${it.file}" media-type="application/xhtml+xml"/>""" }
         val spine = chapters.joinToString("\n") { """    <itemref idref="${it.file.removeSuffix(".xhtml")}"/>""" }
+        // Keyword tags (ChapterTags.ofProject) become the book's subjects, one line each.
+        val subjectLines = subjects.joinToString("") { "    <dc:subject>${escape(it)}</dc:subject>\n" }
         return """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="$language">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -70,7 +73,7 @@ object EpubExporter {
     <dc:title>${escape(title)}</dc:title>
     <dc:creator>${escape(author)}</dc:creator>
     <dc:language>$language</dc:language>
-    <meta property="dcterms:modified">$modified</meta>
+$subjectLines    <meta property="dcterms:modified">$modified</meta>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>

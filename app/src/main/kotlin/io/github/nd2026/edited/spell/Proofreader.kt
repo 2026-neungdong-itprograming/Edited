@@ -25,11 +25,9 @@ object Proofreader {
         for (rule in Linter.rules) {
             rule.check(plain).filterNotTo(found) { scope.isSuppressed(rule.id, it.line) }
         }
-        if (Morphology.isAvailable) {
-            val morphemes = Morphology.analyzeLines(plain)
-            for (rule in Linter.morphemeRules) {
-                rule.check(plain, morphemes).filterNotTo(found) { scope.isSuppressed(rule.id, it.line) }
-            }
+        val morphemes = Morphology.analyzeLines(plain)
+        for (rule in Linter.morphemeRules) {
+            rule.check(plain, morphemes).filterNotTo(found) { scope.isSuppressed(rule.id, it.line) }
         }
         lines.forEachIndexed { line, lineText ->
             for (m in SpellChecker.check(lineText)) {
