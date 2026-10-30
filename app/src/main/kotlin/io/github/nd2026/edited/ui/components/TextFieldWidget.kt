@@ -152,9 +152,16 @@ class TextFieldWidget(
     // --- keyboard ---------------------------------------------------------------------------
 
     override fun onKeyEvent(event: InputEvent.KeyInput): Boolean = when (event) {
-        is InputEvent.KeyTyped -> handleTyped(event.char)
+        // Ctrl+H and Ctrl+Backspace also type a '\b'; only a plain Backspace may delete.
+        is InputEvent.KeyTyped -> event.char == '\b' && event.modifiers and SHORTCUT_MASK != 0 || handleTyped(event.char)
         is InputEvent.KeyPressed -> handlePressed(event)
         is InputEvent.KeyReleased -> false
+    }
+
+    /** Selects the whole text, so the next keystroke replaces it (e.g. when a find shortcut focuses the field). */
+    fun selectAll() {
+        area.moveCaretTo(0)
+        area.moveCaretTo(area.length, extendSelection = true)
     }
 
     private fun handleTyped(char: Char): Boolean = when {
@@ -169,11 +176,7 @@ class TextFieldWidget(
             // Ctrl+Shift+… combinations belong to the window keymap (e.g. 회차 본문 복사), not the field.
             if (event.modifiers and AwtInputEvent.SHIFT_DOWN_MASK != 0) return false
             return when (event.keyCode) {
-                KeyEvent.VK_A -> {
-                    area.moveCaretTo(0)
-                    area.moveCaretTo(area.length, extendSelection = true)
-                    true
-                }
+                KeyEvent.VK_A -> { selectAll(); true }
                 KeyEvent.VK_C -> selectedText()?.let(ClipboardService::writeText) ?: false
                 KeyEvent.VK_X -> cut()
                 KeyEvent.VK_V -> paste()

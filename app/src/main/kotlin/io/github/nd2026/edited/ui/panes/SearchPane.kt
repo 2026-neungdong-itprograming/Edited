@@ -55,6 +55,13 @@ class SearchPane : Container() {
         search()
     }
 
+    /**
+     * The field a find shortcut should put the cursor in: the search field, or with [replace] the
+     * replacement field. Its text is selected so the writer can type over it straight away.
+     */
+    fun shortcutField(replace: Boolean = false): TextFieldWidget =
+        (if (replace) replacement else query).also { it.selectAll() }
+
     fun search() {
         val p = project
         val q = query.text

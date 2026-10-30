@@ -6,10 +6,12 @@ import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.event.InputEvent
 import io.github.nd2026.edited.lexer.MorphemeAnalyzer
 import io.github.nd2026.edited.lexer.Morpheme
+import io.github.nd2026.edited.ui.components.TextFieldWidget
 import io.github.nd2026.edited.ui.docking.Axis
 import io.github.nd2026.edited.ui.editor.EditorDocument
 import io.github.nd2026.edited.ui.editor.EditorGroupWidget
 import io.github.nd2026.edited.ui.editor.EditorPaneWidget
+import io.github.nd2026.edited.ui.panes.SearchPane
 import java.awt.Rectangle
 import java.awt.event.InputEvent as Awt
 import java.awt.event.KeyEvent
@@ -312,6 +314,40 @@ class EditorPaneWidgetTest {
         val colors = (0 until 400).map { image.getRGB(stripeX, it) }.toSet()
         assertNotEquals(1, colors.size)
         pane.onDetach()
+    }
+}
+
+class FindShortcutTest {
+    @Test
+    fun ctrlHAndCtrlBackspaceDoNotDeleteInATextField() {
+        val field = TextFieldWidget("민준")
+        // Ctrl+H opens 바꾸기 and the platform also types a '\b'; it must not eat the selected search text.
+        field.selectAll()
+        assertTrue(field.onKeyEvent(InputEvent.KeyTyped('\b', ctrl)))
+        assertEquals("민준", field.text)
+        field.onKeyEvent(InputEvent.KeyTyped('\b', 0))
+        assertEquals("", field.text)
+    }
+
+    @Test
+    fun ctrlShiftKeysInATextFieldReachTheWindowKeymap() {
+        val field = TextFieldWidget("민준")
+        assertEquals(false, field.onKeyEvent(InputEvent.KeyPressed(KeyEvent.VK_C, ctrl or Awt.SHIFT_DOWN_MASK)))
+        assertEquals(false, field.onKeyEvent(InputEvent.KeyPressed(KeyEvent.VK_F, ctrl)))
+        assertEquals(false, field.onKeyEvent(InputEvent.KeyPressed(KeyEvent.VK_H, ctrl)))
+    }
+
+    @Test
+    fun findShortcutsPickTheFieldAndSelectItsTextForTypingOver() {
+        val pane = SearchPane()
+        pane.searchFor("민준")
+        val find = pane.shortcutField()
+        assertEquals("민준", find.text)
+        "서".forEach { find.onKeyEvent(InputEvent.KeyTyped(it, 0)) }
+        assertEquals("서", find.text, "typing after the shortcut replaces the old search text")
+
+        val replace = pane.shortcutField(replace = true)
+        assertTrue(find !== replace, "Ctrl+H must focus the replacement field, not the search field")
     }
 }
 
