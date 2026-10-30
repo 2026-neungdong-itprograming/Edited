@@ -1,5 +1,8 @@
 package io.github.nd2026.edited.ui
 
+import io.github.nd2026.edited.core.Directive
+import io.github.nd2026.edited.core.Directives
+import io.github.nd2026.edited.core.SuppressionScope
 import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.core.TextAreaListener
 import io.github.nd2026.edited.core.TextEdit
@@ -10,9 +13,12 @@ import io.github.nd2026.edited.lexer.MorphemeIndex
 import io.github.nd2026.edited.lexer.MorphemeIndexListener
 import io.github.nd2026.edited.lexer.Morpheme
 import io.github.nd2026.edited.render.PixelMetrics
+import io.github.nd2026.edited.spell.Misspelling
+import io.github.nd2026.edited.spell.SpellChecker
 import io.github.nd2026.edited.ui.components.ContextMenuItem
 import io.github.nd2026.edited.ui.components.ContextMenuWidget
 import io.github.nd2026.edited.ui.components.withAlpha
+import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Graphics2D
 import java.awt.Rectangle
@@ -27,7 +33,15 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
-/** Virtualized, toolkit-native text editor with selection, clipboard and context menu support. */
+/**
+ * Virtualized, toolkit-native text editor with selection, clipboard and context menu support.
+ *
+ * Misspellings ([SpellChecker]) get a red wavy underline unless an `@Suppress` covers them. Directives
+ * (`@Suppress("맞춤법")`, see [Directives]) are painted yellow and folded into a small `@` chip; the
+ * chip unfolds while the caret is inside the directive (click it), or always with [revealDirectives].
+ * Every column ↔ x conversion goes through [LineLayout], so caret, selection and clicks agree with
+ * what is painted.
+ */
 class TextAreaWidget(
     val textArea: TextArea = TextArea(),
     private val analyzer: MorphemeAnalyzer = DefaultMorphemeAnalyzer,
@@ -54,6 +68,19 @@ class TextAreaWidget(
     private var compositionCaret = 0
     private var compositionAnchor: Int? = null
     private var compositionReplacementEnd: Int? = null
+
+    /** Paints every directive in full instead of folding it (보기 › 지시문 모두 펼치기). */
+    var revealDirectives = false
+        set(value) {
+            if (field == value) return
+            field = value
+            requestRepaint()
+        }
+
+    /** Spelling results per line text; visible lines repeat frame after frame. EDT only. */
+    private val spellingCache = object : LinkedHashMap<String, List<Misspelling>>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Misspelling>>?) = size > 2048
+    }
 
     @Volatile
     private var caretVisible = true
@@ -124,6 +151,7 @@ class TextAreaWidget(
         val viewGraphics = g
         val g = viewGraphics.create() as Graphics2D
         g.translate(-scrollX, 0)
+        val suppression = SuppressionScope(textArea.lineCount, textArea::lineText)
         var widest = 0
         var line = visibleRange.first
         for (lineText in textArea.visibleText(viewport).split('\n')) {
@@ -132,9 +160,10 @@ class TextAreaWidget(
                 paintCompositionLine(g, metrics, line, lineText)
                 widest = maxOf(widest, fm.stringWidth(lineText) + fm.stringWidth(composedText))
             } else {
-                paintSelection(g, metrics, line, lineText)
-                paintLine(g, metrics, line, lineText)
-                widest = maxOf(widest, fm.stringWidth(lineText))
+                val layout = layoutOf(line, lineText)
+                paintSelection(g, metrics, line, layout)
+                paintLine(g, metrics, line, layout, suppression)
+                widest = maxOf(widest, xOf(layout, lineText.length, fm::stringWidth) - TEXT_INSET)
             }
             line++
         }
@@ -147,7 +176,7 @@ class TextAreaWidget(
                     compositionCaretX(fm::stringWidth)
                 } else {
                     val caretCol = textArea.caret - textArea.lineStart(caretLine)
-                    TEXT_INSET + fm.stringWidth(textArea.lineText(caretLine).take(caretCol))
+                    xOf(layoutOf(caretLine, textArea.lineText(caretLine)), caretCol, fm::stringWidth)
                 }
                 val caretY = metrics.topOf(caretLine) - scrollY
                 g.color = t.primary
@@ -211,7 +240,7 @@ class TextAreaWidget(
         if (top < y) y = top else if (top + lh > y + bounds.height) y = top + lh - bounds.height
 
         val column = (textArea.caret - textArea.lineStart(caretLine)).coerceAtLeast(0)
-        val caretX = TEXT_INSET + textWidth(textArea.lineText(caretLine).take(column))
+        val caretX = xOf(layoutOf(caretLine, textArea.lineText(caretLine)), column)
         var x = scrollX
         val margin = (bounds.width / 8).coerceIn(8, 48)
         if (caretX - margin < x) x = caretX - margin
@@ -221,42 +250,129 @@ class TextAreaWidget(
         scrollTo(x, y)
     }
 
-    /** Plain text, except the hovered sentence, whose chars are colored by their morpheme's part of speech. */
-    private fun paintLine(g: Graphics2D, metrics: PixelMetrics, line: Int, lineText: String) {
+    /**
+     * Plain text, except the hovered sentence, whose chars are colored by their morpheme's part of speech, and
+     * directives, which are yellow (or a folded chip). Misspellings not covered by an `@Suppress` get a red wave.
+     */
+    private fun paintLine(g: Graphics2D, metrics: PixelMetrics, line: Int, layout: LineLayout, suppression: SuppressionScope) {
+        val lineText = layout.text
         val baseline = metrics.baselineOf(line) - scrollY
         val lineStart = textArea.lineStart(line)
         val sentence = hoveredSentence
         val morphemes = morphemeIndex?.morphemesForLine(line)
         val from = ((sentence?.first ?: 0) - lineStart).coerceIn(0, lineText.length)
         val to = (((sentence?.last ?: -1) + 1) - lineStart).coerceIn(from, lineText.length)
-        if (sentence == null || morphemes.isNullOrEmpty() || from == to) {
+        val misspellings = spellingOf(lineText).filterNot { suppression.isSuppressed(SpellChecker.CHECK_ID, line, it.start) }
+        val fm = g.fontMetrics
+        if ((sentence == null || morphemes.isNullOrEmpty() || from == to) && layout.directives.isEmpty()) {
             g.color = theme.onSurface
             g.drawString(lineText, TEXT_INSET, baseline)
+            paintMisspellings(g, layout, misspellings, baseline)
             return
         }
 
         // Morphemes can share a source span (e.g. contracted syllables); the first one wins.
         val colors = arrayOfNulls<Color>(lineText.length)
-        for (m in morphemes) {
+        if (sentence != null && morphemes != null) for (m in morphemes) {
             val color = PosHighlight.colorFor(theme, m.partOfSpeech)
             for (i in (m.start - lineStart).coerceAtLeast(from) until (m.end - lineStart).coerceAtMost(to)) {
                 if (colors[i] == null) colors[i] = color
             }
         }
+        val directiveColor = directiveColor()
+        for (d in layout.directives) for (i in d.start until d.end) colors[i] = directiveColor
 
-        var runStart = 0
-        while (runStart < lineText.length) {
-            val color = colors[runStart] ?: theme.onSurface
-            var runEnd = runStart + 1
-            while (runEnd < lineText.length && (colors[runEnd] ?: theme.onSurface) == color) runEnd++
-            g.color = color
-            g.drawString(
-                lineText.substring(runStart, runEnd),
-                TEXT_INSET + g.fontMetrics.stringWidth(lineText.take(runStart)),
-                baseline,
-            )
-            runStart = runEnd
+        fun paintRuns(start: Int, end: Int) {
+            var runStart = start
+            while (runStart < end) {
+                val color = colors[runStart] ?: theme.onSurface
+                var runEnd = runStart + 1
+                while (runEnd < end && (colors[runEnd] ?: theme.onSurface) == color) runEnd++
+                g.color = color
+                g.drawString(lineText.substring(runStart, runEnd), xOf(layout, runStart, fm::stringWidth), baseline)
+                runStart = runEnd
+            }
         }
+
+        var column = 0
+        for (d in layout.folded) {
+            paintRuns(column, d.start)
+            paintDirectiveChip(g, xOf(layout, d.start, fm::stringWidth), metrics.topOf(line) - scrollY, metrics.lineHeight, directiveColor)
+            column = d.end
+        }
+        paintRuns(column, lineText.length)
+        paintMisspellings(g, layout, misspellings, baseline)
+    }
+
+    /** A folded directive: a small rounded "@" chip in the directive color. */
+    private fun paintDirectiveChip(g: Graphics2D, x: Int, top: Int, height: Int, color: Color) {
+        val chipHeight = (height - 8).coerceAtLeast(10)
+        val y = top + (height - chipHeight) / 2
+        val width = CHIP_WIDTH - 4
+        g.color = color.withAlpha(40)
+        g.fillRoundRect(x + 2, y, width, chipHeight, 8, 8)
+        g.color = color
+        g.drawRoundRect(x + 2, y, width - 1, chipHeight - 1, 8, 8)
+        val font = g.font
+        g.font = font.deriveFont(font.size2D * 0.8f)
+        val fm = g.fontMetrics
+        g.drawString("@", x + 2 + (width - fm.stringWidth("@")) / 2, y + (chipHeight + fm.ascent - fm.descent) / 2)
+        g.font = font
+    }
+
+    /** Red wavy underline under each misspelling, like a word processor's spell check. */
+    private fun paintMisspellings(g: Graphics2D, layout: LineLayout, misspellings: List<Misspelling>, baseline: Int) {
+        if (misspellings.isEmpty()) return
+        val fm = g.fontMetrics
+        val stroke = g.stroke
+        g.color = theme.error
+        g.stroke = BasicStroke(1.2f)
+        val y = baseline + 3
+        for (m in misspellings) {
+            val x1 = xOf(layout, m.start, fm::stringWidth)
+            val x2 = xOf(layout, m.end, fm::stringWidth).coerceAtLeast(x1 + 4)
+            var x = x1
+            var up = true
+            while (x < x2) {
+                val next = (x + 2).coerceAtMost(x2)
+                g.drawLine(x, if (up) y else y + 2, next, if (up) y + 2 else y)
+                up = !up
+                x = next
+            }
+        }
+        g.stroke = stroke
+    }
+
+    private fun spellingOf(lineText: String): List<Misspelling> =
+        if (lineText.isBlank()) emptyList() else spellingCache.getOrPut(lineText) { SpellChecker.check(lineText) }
+
+    private fun directiveColor(): Color = if (theme.isDark) Color(0xFF, 0xCB, 0x6B) else Color(0xA6, 0x7C, 0x00)
+
+    /** A line as painted: its [directives], of which [folded] show as one [CHIP_WIDTH] chip instead of their text. */
+    private class LineLayout(val text: String, val directives: List<Directive>, val folded: List<Directive>)
+
+    /** Directives fold unless [revealDirectives] is on or the caret is strictly inside one (clicking a chip puts it there). */
+    private fun layoutOf(line: Int, text: String): LineLayout {
+        val directives = Directives.inLine(text)
+        if (directives.isEmpty() || revealDirectives) return LineLayout(text, directives, emptyList())
+        val caretLine = textArea.lineOf(textArea.caret)
+        val caretColumn = if (caretLine == line) textArea.caret - textArea.lineStart(line) else -1
+        return LineLayout(text, directives, directives.filterNot { caretColumn > it.start && caretColumn < it.end })
+    }
+
+    /** View x (text inset included, before horizontal scrolling) of [column]; a column inside a folded chip maps to its right edge. */
+    private fun xOf(layout: LineLayout, column: Int, widthOf: (String) -> Int = ::textWidth): Int {
+        val text = layout.text
+        val target = column.coerceIn(0, text.length)
+        var x = TEXT_INSET
+        var from = 0
+        for (d in layout.folded) {
+            if (target <= d.start) return x + widthOf(text.substring(from, target))
+            x += widthOf(text.substring(from, d.start)) + CHIP_WIDTH
+            from = d.end
+            if (target < d.end) return x
+        }
+        return x + widthOf(text.substring(from, target))
     }
 
     /** A small card next to the hovered sentence listing its morphemes as `surface/TAG`. */
@@ -360,7 +476,8 @@ class TextAreaWidget(
         g.drawLine(compositionX, baseline + 2, compositionX + compositionWidth, baseline + 2)
     }
 
-    private fun paintSelection(g: Graphics2D, metrics: PixelMetrics, line: Int, lineText: String) {
+    private fun paintSelection(g: Graphics2D, metrics: PixelMetrics, line: Int, layout: LineLayout) {
+        val lineText = layout.text
         val selection = textArea.selectionRange()?.takeUnless(IntRange::isEmpty) ?: return
         val lineStart = textArea.lineStart(line)
         val lineEnd = textArea.lineEnd(line)
@@ -371,8 +488,8 @@ class TextAreaWidget(
         val fm = g.fontMetrics
         val fromColumn = selectedStart - lineStart
         val toColumn = (selectedEndExclusive - lineStart).coerceAtMost(lineText.length)
-        val x = TEXT_INSET + fm.stringWidth(lineText.take(fromColumn))
-        val width = fm.stringWidth(lineText.substring(fromColumn, toColumn)).coerceAtLeast(2)
+        val x = xOf(layout, fromColumn, fm::stringWidth)
+        val width = (xOf(layout, toColumn, fm::stringWidth) - x).coerceAtLeast(2)
         val y = metrics.topOf(line) - scrollY
         g.color = Color(theme.primary.red, theme.primary.green, theme.primary.blue, 56)
         g.fillRect(x, y, width, metrics.lineHeight)
@@ -486,9 +603,24 @@ class TextAreaWidget(
     private fun offsetAt(rootX: Int, rootY: Int): Int {
         val line = ((rootY - bounds.y + scrollY) / lineHeight)
             .coerceIn(0, textArea.lineCount - 1)
-        val text = textArea.lineText(line)
         val targetX = (rootX - bounds.x - TEXT_INSET + scrollX).coerceAtLeast(0)
-        return textArea.lineStart(line) + columnAt(text, targetX)
+        return textArea.lineStart(line) + columnAt(layoutOf(line, textArea.lineText(line)), targetX)
+    }
+
+    /** The column nearest [targetX] in a painted line; a click on a folded chip lands inside its directive, unfolding it. */
+    private fun columnAt(layout: LineLayout, targetX: Int): Int {
+        val text = layout.text
+        var x = 0
+        var from = 0
+        for (d in layout.folded) {
+            val runWidth = textWidth(text.substring(from, d.start))
+            if (targetX < x + runWidth) return from + columnAt(text.substring(from, d.start), targetX - x)
+            x += runWidth
+            if (targetX < x + CHIP_WIDTH) return d.start + 1
+            x += CHIP_WIDTH
+            from = d.end
+        }
+        return from + columnAt(text.substring(from), targetX - x)
     }
 
     /** The caret column nearest [targetX]: binary search over prefix widths instead of measuring every column. */
@@ -640,7 +772,7 @@ class TextAreaWidget(
         val offset = if (composedText.isEmpty()) 0 else offsetInComposition.coerceIn(0, composedText.length)
         val x = if (composedText.isEmpty()) {
             val column = textArea.caret - textArea.lineStart(line)
-            TEXT_INSET + textWidth(textArea.lineText(line).take(column))
+            xOf(layoutOf(line, textArea.lineText(line)), column)
         } else {
             compositionCaretX { textWidth(it) } - textWidth(composedText.take(compositionCaret)) +
                 textWidth(composedText.take(offset))
@@ -683,6 +815,9 @@ class TextAreaWidget(
 
     companion object {
         private const val TEXT_INSET = 8
+
+        /** Width of a folded directive's chip. */
+        private const val CHIP_WIDTH = 24
         private const val SENTENCE_END = ".!?。…"
         private const val SENTENCE_CLOSERS = "\"'”’」』)]"
         private const val CARET_BLINK_MILLIS = 530L

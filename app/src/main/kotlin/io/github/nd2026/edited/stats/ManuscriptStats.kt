@@ -1,5 +1,6 @@
 package io.github.nd2026.edited.stats
 
+import io.github.nd2026.edited.core.Directives
 import io.github.nd2026.edited.core.Sentences
 import io.github.nd2026.edited.project.ChapterTitle
 import io.github.nd2026.edited.project.Project
@@ -21,7 +22,8 @@ object ManuscriptStats {
     fun of(project: Project): List<ChapterStats> = project.chapters().map { of(it.path, Files.readString(it.path)) }
 
     fun of(path: Path, text: String): ChapterStats {
-        val body = text.lineSequence().filterNot(ChapterTitle::isHeading).toList()
+        // Directives (@Suppress …) are notes to Texted, not part of the chapter's length.
+        val body = Directives.strip(text).lineSequence().filterNot(ChapterTitle::isHeading).toList()
         var chars = 0
         var noSpace = 0
         for (line in body) {

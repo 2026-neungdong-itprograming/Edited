@@ -1,5 +1,6 @@
 package io.github.nd2026.edited.export
 
+import io.github.nd2026.edited.core.Directives
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -14,12 +15,13 @@ object ChapterText {
     private val italic = Regex("(?<![*\\w])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![*\\w])")
     private val strike = Regex("~~(.+?)~~")
     private val code = Regex("`([^`]+)`")
-    private val link = Regex("\\[([^\\]]+)]\\([^)]*\\)")
+    private val link = Regex("\\[([^]]+)]\\([^)]*\\)")
 
     fun of(path: Path): String = plain(Files.readString(path))
 
     fun plain(markdown: String): String {
-        val lines = markdown.lines().map { raw ->
+        // Directives (@Suppress …) are notes to Texted; readers never see them.
+        val lines = Directives.strip(markdown).lines().map { raw ->
             var line = raw.removeSuffix("\r").trimEnd()
             line = heading.replace(line, "")
             line = quote.replace(line, "")

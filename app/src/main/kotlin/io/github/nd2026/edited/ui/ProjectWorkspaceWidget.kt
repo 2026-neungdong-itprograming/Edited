@@ -13,7 +13,7 @@ import io.github.nd2026.edited.event.InputEvent
 import io.github.nd2026.edited.export.ChapterText
 import io.github.nd2026.edited.export.EpubExporter
 import io.github.nd2026.edited.export.TxtExporter
-import io.github.nd2026.edited.inspect.Linter
+import io.github.nd2026.edited.spell.Proofreader
 import io.github.nd2026.edited.project.NovelFormat
 import io.github.nd2026.edited.project.Project
 import io.github.nd2026.edited.project.ProjectFiles
@@ -271,7 +271,8 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             )
             2 -> PANE_NAMES.mapIndexed { i, name ->
                 ContextMenuItem((if (rail.selectedIndex == i) "✓  " else "     ") + name, "Alt+${i + 1}") { showLeftPane(i) }
-            } + ContextMenuItem(if (theme.isDark) "     밝은 테마로 전환" else "     어두운 테마로 전환", "") { toggleTheme() }
+            } + ContextMenuItem(if (theme.isDark) "     밝은 테마로 전환" else "     어두운 테마로 전환", "") { toggleTheme() } +
+                ContextMenuItem((if (editor.revealDirectives) "✓  " else "     ") + "지시문(@) 모두 펼치기", "") { editor.revealDirectives = !editor.revealDirectives }
             3 -> listOf(
                 ContextMenuItem("다음 탭", "Alt+→", manyTabs) { selectTab(1) },
                 ContextMenuItem("이전 탭", "Alt+←", manyTabs) { selectTab(-1) },
@@ -505,7 +506,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             val result = runCatching {
                 val inspections = Parallel.map(chapters) { path ->
                     val text = Files.readString(path)
-                    lintMemo[path]?.takeIf { it.first == text }?.second ?: Linter.run(text).also { lintMemo[path] = text to it }
+                    lintMemo[path]?.takeIf { it.first == text }?.second ?: Proofreader.run(text).also { lintMemo[path] = text to it }
                 }
                 chapters.zip(inspections).toMap()
             }.getOrDefault(emptyMap())
@@ -1153,6 +1154,10 @@ private class DocumentEditorWidget : Container() {
     /** The editor of the active tab, for menu commands (undo, clipboard, …). */
     val activeTextArea: TextAreaWidget? get() = activeEditor
 
+    /** Shows directives in full in every tab instead of folding them (see [TextAreaWidget.revealDirectives]). */
+    var revealDirectives = false
+        set(value) { field = value; activeEditor?.revealDirectives = value }
+
     init {
         addChild(tabs)
         tabs.onSelect = { session?.select(Path.of(it)); refresh() }
@@ -1168,7 +1173,7 @@ private class DocumentEditorWidget : Container() {
         if (activeEditor?.textArea !== document?.textArea) {
             activeEditor?.let(::removeChild)
             // Only prose (Texted formats and Markdown) gets Kiwi morpheme analysis; JSON, .gitignore etc. stay plain text.
-            activeEditor = document?.let { TextAreaWidget(it.textArea, analyzerFor(it.path)) }
+            activeEditor = document?.let { TextAreaWidget(it.textArea, analyzerFor(it.path)).apply { revealDirectives = this@DocumentEditorWidget.revealDirectives } }
             activeEditor?.let(::addChild)
         }
         layout(); requestRepaint()
