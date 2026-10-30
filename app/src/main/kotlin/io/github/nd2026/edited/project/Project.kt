@@ -9,9 +9,9 @@ import java.nio.file.Path
  * ```
  * <root>/
  *   texted.project.json   manifest
- *   manuscript/           chapters (.md)
- *   characters/           character sheets
- *   world/                world-building notes
+ *   manuscript/           chapters (.episode; .md/.txt still read - see NovelFormat)
+ *   characters/           character sheets (.character)
+ *   world/                world-building notes (.world)
  *   custom-rules.json     local user dictionary (see UserDictionaryLoader)
  * ```
  */

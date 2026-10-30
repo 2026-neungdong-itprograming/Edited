@@ -5,6 +5,9 @@ import kr.pe.bab2min.KiwiBuilder
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
  * [MorphemeAnalyzer] backed by [Kiwi](https://github.com/bab2min/Kiwi) through its JNI binding.
@@ -17,8 +20,9 @@ import java.nio.file.Paths
  * `그친` -> `그치`/VV (2 chars) + `ᆫ`/ETM (the final consonant, 1 char). Kiwi does no compound
  * decomposition, so [Morpheme.decompound] is always empty.
  *
- * The native handle is thread-safe for [analyze], but [reload] swaps it out, so [MorphemeIndex]'s
- * single background thread remains the intended caller.
+ * The native handle is thread-safe for [analyze], so any number of threads may analyze at once.
+ * [reload] builds the new handle without blocking them, then swaps it in under a write lock and
+ * closes the old one only after every in-flight [analyze] on it has returned (no use-after-free).
  */
 class KiwiMorphemeAnalyzer(
     private val modelDir: Path = defaultModelDir(),
@@ -28,21 +32,26 @@ class KiwiMorphemeAnalyzer(
     /** A local user-dictionary entry - see [UserDictionaryLoader]. */
     data class UserWord(val surface: String, val partOfSpeech: String = "NNP", val score: Float = 0f)
 
-    @Volatile
+    /** Readers are [analyze] calls; the writer is the swap in [reload] / [close]. */
+    private val handleLock = ReentrantReadWriteLock()
+
     private var kiwi: Kiwi = build(userWords)
+
+    override val isThreadSafe: Boolean get() = true
 
     /** Rebuilds the underlying Kiwi instance against a new/updated user dictionary. */
     @Synchronized
     fun reload(userWords: List<UserWord>) {
-        val previous = kiwi
-        kiwi = build(userWords)
+        val next = build(userWords)
+        val previous = handleLock.write { kiwi.also { kiwi = next } }
         previous.close()
     }
 
     override fun analyze(text: String, baseOffset: Int): List<Morpheme> {
         if (text.isEmpty()) return emptyList()
 
-        return kiwi.tokenize(text, ANALYZE_OPTION).map { token ->
+        val tokens = handleLock.read { kiwi.tokenize(text, ANALYZE_OPTION) }
+        return tokens.map { token ->
             val start = baseOffset + token.position
             Morpheme(
                 surface = token.form,
@@ -53,7 +62,7 @@ class KiwiMorphemeAnalyzer(
         }
     }
 
-    override fun close() = kiwi.close()
+    override fun close() = handleLock.write { kiwi.close() }
 
     private fun build(userWords: List<UserWord>): Kiwi {
         require(Files.isDirectory(modelDir)) {

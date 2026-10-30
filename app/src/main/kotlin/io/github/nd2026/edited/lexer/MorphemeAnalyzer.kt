@@ -12,4 +12,7 @@ interface MorphemeAnalyzer {
      * know where in the document [text] came from.
      */
     fun analyze(text: String, baseOffset: Int = 0): List<Morpheme>
+
+    /** True when [analyze] may be called from several threads at once ([MorphemeIndex] then analyzes lines in parallel). */
+    val isThreadSafe: Boolean get() = false
 }

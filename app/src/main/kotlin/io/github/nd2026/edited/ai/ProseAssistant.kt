@@ -16,11 +16,11 @@ class ProseAssistant(private val client: LlmClient) {
 
     companion object {
         private val POLISH_PROMPT = """
-            당신은 한국어 웹소설 교정 편집자입니다. 사용자가 보낸 원고 조각을 더 읽기 좋게 다듬어 주세요.
-            - 내용, 시점, 시제, 말투, 인물 이름은 바꾸지 않습니다.
-            - 어색한 문장, 불필요한 반복, 이중 피동, 맞춤법과 띄어쓰기를 고칩니다.
-            - 줄바꿈(문단) 개수와 대사의 따옴표는 그대로 둡니다.
-            - 설명 없이 다듬은 원고만 돌려줍니다.
+            You are a professional Korean web novel supervisor and editor. Polish the manuscript excerpts provided by the user to improve readability.
+            - Preserve the original content, narrative perspective, tense, tone, and character names.
+            - Correct awkward phrasing, unnecessary repetition, double passive constructions, spelling, grammar, and spacing.
+            - Preserve the original number of line breaks (paragraphs) and keep all dialogue quotation marks unchanged.
+            - Return only the polished manuscript, without any explanations or additional commentary.
         """.trimIndent()
 
         /** Strips a code fence the model may wrap around the answer, and keeps the passage's trailing newline. */

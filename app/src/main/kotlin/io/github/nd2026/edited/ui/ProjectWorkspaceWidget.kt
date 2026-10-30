@@ -5,6 +5,7 @@ import io.github.nd2026.edited.ai.LlmClient
 import io.github.nd2026.edited.ai.LlmConfig
 import io.github.nd2026.edited.ai.ProseAssistant
 import io.github.nd2026.edited.core.Inspection
+import io.github.nd2026.edited.core.Parallel
 import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.core.TextAreaListener
 import io.github.nd2026.edited.core.TextEdit
@@ -13,7 +14,9 @@ import io.github.nd2026.edited.export.ChapterText
 import io.github.nd2026.edited.export.EpubExporter
 import io.github.nd2026.edited.export.TxtExporter
 import io.github.nd2026.edited.inspect.Linter
+import io.github.nd2026.edited.project.NovelFormat
 import io.github.nd2026.edited.project.Project
+import io.github.nd2026.edited.project.ProjectFiles
 import io.github.nd2026.edited.project.ProjectNode
 import io.github.nd2026.edited.project.ProjectService
 import io.github.nd2026.edited.theme.MaterialSpaceTheme
@@ -48,8 +51,10 @@ import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.Toolkit
+import java.awt.event.MouseEvent
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import javax.swing.SwingUtilities
 
@@ -109,6 +114,23 @@ class WorkspaceSession(val project: Project) {
             if (Files.isRegularFile(path)) documents[path] = WorkspaceDocument(path) else close(path)
         }
     }
+
+    /**
+     * Follows a rename on disk: every open document at [from] (or under it, for a folder) is re-read from
+     * its new place under [to], keeping tab order and the active tab. Save before moving the files.
+     */
+    fun moved(from: Path, to: Path) {
+        val source = from.toAbsolutePath().normalize()
+        val target = to.toAbsolutePath().normalize()
+        fun follow(path: Path) = if (path.startsWith(source)) target.resolve(source.relativize(path)) else path
+        val reopened = documents.keys.associateWith(::follow)
+        if (reopened.all { (old, new) -> old == new }) return
+        val next = LinkedHashMap<Path, WorkspaceDocument>()
+        for ((old, new) in reopened) next[new] = if (old == new) documents.getValue(old) else WorkspaceDocument(new)
+        documents.clear()
+        documents.putAll(next)
+        activePath = activePath?.let(::follow)
+    }
 }
 
 /** Main application composition backed by an actual on-disk project. */
@@ -138,8 +160,8 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
     private val aiExecutor = Executors.newSingleThreadExecutor { Thread(it, "texted-ai").apply { isDaemon = true } }
     /** Latest [relint] request; older results arriving later are dropped. EDT only. */
     private var lintGeneration = 0
-    /** Last lint result per chapter with the text it was computed from. [lintExecutor] only. */
-    private val lintMemo = HashMap<Path, Pair<String, List<Inspection>>>()
+    /** Last lint result per chapter with the text it was computed from. Written by [Parallel] workers during [relint]. */
+    private val lintMemo = ConcurrentHashMap<Path, Pair<String, List<Inspection>>>()
     /** Called on the EDT whenever fresh inspections reach the problems pane (tests wait on it). */
     internal var lintListener: (Map<Path, List<Inspection>>) -> Unit = {}
     var onNewProject: () -> Unit = {}
@@ -160,6 +182,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         newProjectButton.onClick = { onNewProject() }
         openProjectButton.onClick = { onOpenProject() }
         tree.onOpenFile = ::openFile
+        tree.onContextMenu = ::showFileMenu
         rail.onSelect = ::showLeftPane
         showLeftPane(0)
         problems.onNavigate = { path, line -> openFile(path); editor.reveal(line) }
@@ -210,6 +233,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
         val layer = menuLayer ?: return
         menuLayer = null
         topBar.openMenu = -1
+        layer.menu.closeSubmenu()
         (parent as? OverlayHostWidget)?.removeOverlay(layer)
     }
 
@@ -229,6 +253,7 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             0 -> listOf(
                 ContextMenuItem("새 프로젝트…", "Ctrl+N") { onNewProject() },
                 ContextMenuItem("폴더 열기…", "Ctrl+O") { onOpenProject() },
+                ContextMenuItem.submenu("새로 만들기", newItems(session?.project?.root), enabled = hasProject),
                 ContextMenuItem("저장", "Ctrl+S", hasDocument) { saveActiveDocument() },
                 ContextMenuItem("탭 닫기", "Ctrl+F4", hasDocument) { closeActiveTab() },
                 ContextMenuItem("내보내기 (TXT·EPUB)", "Ctrl+Shift+E", hasProject) { exportManuscript() },
@@ -468,18 +493,21 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
     }
 
     /**
-     * Lints every chapter on [lintExecutor] - the first run may wait for Kiwi to load (or download) - and
+     * Lints every chapter from [lintExecutor] - the first run may wait for Kiwi to load (or download) - and
      * publishes the result on the EDT unless a newer run superseded it. Unchanged chapters reuse [lintMemo].
+     * Chapters are read and linted concurrently on [Parallel.pool], and each chapter's morpheme analysis
+     * forks its lines onto the same workers, so a whole-project relint keeps every core busy.
      */
     private fun relint(project: Project) {
         val generation = ++lintGeneration
         val chapters = project.chapters().map { it.path.toAbsolutePath().normalize() }
         lintExecutor.execute {
             val result = runCatching {
-                chapters.associateWith { path ->
+                val inspections = Parallel.map(chapters) { path ->
                     val text = Files.readString(path)
                     lintMemo[path]?.takeIf { it.first == text }?.second ?: Linter.run(text).also { lintMemo[path] = text to it }
                 }
+                chapters.zip(inspections).toMap()
             }.getOrDefault(emptyMap())
             lintMemo.keys.retainAll(chapters.toSet())
             SwingUtilities.invokeLater {
@@ -519,6 +547,117 @@ class ProjectWorkspaceWidget(initialSession: WorkspaceSession?) : Container() {
             .onSuccess { editor.refresh(); status.message = path.fileName.toString() }
             .onFailure { status.message = "⚠ ${it.message}" }
         status.requestRepaint()
+    }
+
+    /** "새로 만들기" rows: one per [NovelFormat] plus a folder, created next to [target] (see [ProjectFiles.folderFor]). */
+    private fun newItems(target: Path?): List<ContextMenuItem> {
+        val enabled = session != null && target != null
+        return NovelFormat.entries.map { format -> ContextMenuItem(format.label, ".${format.extension}", enabled) { askNewDocument(format, target!!) } } +
+            ContextMenuItem("폴더", "", enabled) { askNewFolder(target!!) }
+    }
+
+    /** Right-click menu of a project-tree row: 새로 만들기 ▸, 이름 바꾸기, 확장자 바꾸기 ▸. */
+    private fun showFileMenu(node: ProjectNode, x: Int, y: Int) {
+        val project = session?.project ?: return
+        val overlay = parent as? OverlayHostWidget ?: return
+        val isRoot = node.path.toAbsolutePath().normalize() == project.root.toAbsolutePath().normalize()
+        val items = buildList {
+            add(ContextMenuItem.submenu("새로 만들기", newItems(node.path)))
+            add(ContextMenuItem("이름 바꾸기…", "", !isRoot) { askRename(node.path) })
+            if (node is ProjectNode.File) add(ContextMenuItem.submenu("확장자 바꾸기", extensionItems(node.path)))
+        }
+        lateinit var menu: ContextMenuWidget
+        menu = ContextMenuWidget(items) { overlay.removeOverlay(menu) }
+        val width = ContextMenuWidget.preferredWidth(items, theme.labelFont)
+        val height = ContextMenuWidget.preferredHeight(items.size)
+        val ob = overlay.bounds
+        menu.setBounds(
+            x.coerceIn(ob.x + 4, (ob.x + ob.width - width - 4).coerceAtLeast(ob.x + 4)),
+            y.coerceIn(ob.y + 4, (ob.y + ob.height - height - 4).coerceAtLeast(ob.y + 4)),
+            width,
+            height,
+        )
+        overlay.showOverlay(menu, dismissOnOutside = true)
+        hostPane?.focusManager?.requestFocus(menu)
+    }
+
+    /** "확장자 바꾸기" rows: Texted's formats, then the older text formats; the current one is checked. */
+    private fun extensionItems(path: Path): List<ContextMenuItem> {
+        val current = path.fileName.toString().substringAfterLast('.', "").lowercase()
+        val choices = NovelFormat.entries.map { it.extension to it.label } + NovelFormat.LEGACY_EXTENSIONS
+        return choices.map { (extension, label) ->
+            ContextMenuItem((if (extension == current) "✓  " else "     ") + label, ".$extension", extension != current) {
+                renameTo(path) { ProjectFiles.changeExtension(it, path, extension) }?.let { error -> setStatus("⚠ $error") }
+            }
+        }
+    }
+
+    private fun askNewDocument(format: NovelFormat, target: Path) {
+        val project = session?.project ?: return
+        val dir = ProjectFiles.folderFor(project, format, target)
+        val folder = project.root.toAbsolutePath().normalize().relativize(dir).toString().replace('\\', '/')
+        showNameDialog(
+            title = "새 ${format.label}",
+            hint = "$folder/ 에 .${format.extension} 파일로 만듭니다" + if (format == NovelFormat.EPISODE) " · 번호는 자동" else "",
+            initial = if (format == NovelFormat.EPISODE) ProjectFiles.nextEpisodeTitle(dir) else "",
+            placeholder = when (format) {
+                NovelFormat.EPISODE -> "에피소드 제목"
+                NovelFormat.CHARACTER -> "인물 이름"
+                NovelFormat.WORLD -> "장소·단체·물건 이름"
+            },
+            action = "만들기",
+        ) { name ->
+            runCatching { ProjectFiles.create(project, format, dir, name) }.fold({ created ->
+                filesChanged()
+                openFile(created)
+                setStatus("✓ 만들었습니다: ${created.fileName}")
+                null
+            }, { it.message })
+        }
+    }
+
+    private fun askNewFolder(target: Path) {
+        val project = session?.project ?: return
+        val dir = if (Files.isDirectory(target)) target else target.parent
+        showNameDialog("새 폴더", "${dir.fileName}/ 안에 만듭니다", "", "폴더 이름", "만들기") { name ->
+            runCatching { ProjectFiles.createFolder(project, dir, name) }.fold({ filesChanged(); setStatus("✓ 폴더를 만들었습니다: ${it.fileName}"); null }, { it.message })
+        }
+    }
+
+    private fun askRename(path: Path) {
+        val isFolder = Files.isDirectory(path)
+        val extension = if (isFolder) "" else path.fileName.toString().substringAfterLast('.', "").let { if (it.isEmpty()) "" else ".$it" }
+        val hint = if (isFolder || extension.isEmpty()) "새 이름" else "확장자($extension)는 그대로 둡니다 · 바꾸려면 '확장자 바꾸기'"
+        showNameDialog("이름 바꾸기", hint, ProjectFiles.baseName(path), "새 이름", "바꾸기") { name ->
+            renameTo(path) { ProjectFiles.rename(it, path, name + extension) }
+        }
+    }
+
+    /**
+     * Saves open documents, runs the rename [op], moves affected tabs to the new path and refreshes the tree
+     * and every pane. Returns the error message, or null on success.
+     */
+    private fun renameTo(path: Path, op: (Project) -> Path): String? {
+        val current = session ?: return null
+        current.saveAll()
+        return runCatching { op(current.project) }.fold({ moved ->
+            current.moved(path, moved)
+            editor.refresh()
+            filesChanged()
+            setStatus("✓ ${path.fileName} → ${moved.fileName}")
+            null
+        }, { it.message ?: it.toString() })
+    }
+
+    /** The tree and every derived pane after files were created or renamed. */
+    private fun filesChanged() {
+        tree.project = session?.project
+        afterFilesChanged()
+    }
+
+    private fun showNameDialog(title: String, hint: String, initial: String, placeholder: String, action: String, onSubmit: (String) -> String?) {
+        val overlay = parent as? OverlayHostWidget ?: return
+        NameDialog(title, hint, initial, placeholder, action, onSubmit).show(overlay)
     }
 
     private companion object {
@@ -784,6 +923,8 @@ private class ProjectTreeWidget : Widget() {
             rebuild()
         }
     var onOpenFile: (Path) -> Unit = {}
+    /** Right-click on a row (or below the rows, for the root) at root-relative x, y. */
+    var onContextMenu: (ProjectNode, Int, Int) -> Unit = { _, _, _ -> }
 
     /** The file shown in the active editor tab; its row is highlighted like IntelliJ's "always select opened file". */
     var selectedPath: Path? = null
@@ -911,6 +1052,9 @@ private class ProjectTreeWidget : Widget() {
         }
         val extension = node.name.substringAfterLast('.', "").lowercase()
         val (color, badge) = when {
+            extension == "episode" -> Color(0x82, 0xAA, 0xFF) to "Ep"
+            extension == "character" -> Color(0xC7, 0x92, 0xEA) to "C"
+            extension == "world" -> Color(0xC3, 0xE8, 0x8D) to "W"
             extension == "md" -> Color(0x82, 0xAA, 0xFF) to "M"
             extension == "txt" -> Color(0x95, 0x9D, 0xAA) to "T"
             extension == "json" -> Color(0xFF, 0xCB, 0x6B) to "{}"
@@ -944,6 +1088,13 @@ private class ProjectTreeWidget : Widget() {
         when (event) {
             is InputEvent.MousePressed -> {
                 val index = rowAt(event.y)
+                if (event.button == MouseEvent.BUTTON3) {
+                    // Right-click: the row's menu, or the project root's below the last row.
+                    val target = rows.getOrNull(index)?.node ?: root ?: return false
+                    if (index >= 0) selectedPath = target.path
+                    onContextMenu(target, event.x, event.y)
+                    return true
+                }
                 val node = rows.getOrNull(index)?.node ?: return false
                 pressedRow = index
                 val row = rows[index]
@@ -1016,7 +1167,7 @@ private class DocumentEditorWidget : Container() {
         // Keep the editor (scroll position, morpheme cache) when the active document didn't change, e.g. after Ctrl+S.
         if (activeEditor?.textArea !== document?.textArea) {
             activeEditor?.let(::removeChild)
-            // Only Markdown manuscripts get Kiwi morpheme analysis; JSON, .gitignore etc. stay plain text.
+            // Only prose (Texted formats and Markdown) gets Kiwi morpheme analysis; JSON, .gitignore etc. stay plain text.
             activeEditor = document?.let { TextAreaWidget(it.textArea, analyzerFor(it.path)) }
             activeEditor?.let(::addChild)
         }
@@ -1155,4 +1306,4 @@ private object NoMorphemeAnalyzer : MorphemeAnalyzer {
 }
 
 private fun analyzerFor(path: Path): MorphemeAnalyzer =
-    if (path.fileName.toString().endsWith(".md", ignoreCase = true)) Morphology.analyzer else NoMorphemeAnalyzer
+    if (NovelFormat.of(path) != null || path.fileName.toString().endsWith(".md", ignoreCase = true)) Morphology.analyzer else NoMorphemeAnalyzer

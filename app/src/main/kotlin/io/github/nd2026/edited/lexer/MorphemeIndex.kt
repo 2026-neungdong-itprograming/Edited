@@ -1,5 +1,6 @@
 package io.github.nd2026.edited.lexer
 
+import io.github.nd2026.edited.core.Parallel
 import io.github.nd2026.edited.core.TextArea
 import io.github.nd2026.edited.core.TextAreaListener
 import io.github.nd2026.edited.core.TextEdit
@@ -24,7 +25,10 @@ import javax.swing.Timer
  * needs no cross-thread synchronization - unlike
  * [io.github.nd2026.edited.render.DirtyRegionQueue], which exists because repaint requests can
  * come from any thread. A [Timer] debounces bursts of edits (fast typing) before handing the
- * batch to a single background thread that owns the (not thread-safe) [MorphemeAnalyzer].
+ * batch to a single background thread, which keeps batches in order. Within a batch, a
+ * [MorphemeAnalyzer.isThreadSafe] analyzer (Kiwi) runs the lines on every [Parallel] worker -
+ * opening a chapter analyzes a screenful of paragraphs at once - while any other analyzer is
+ * called from that one thread only.
  * Each job captures the line's text at scheduling time; when its result comes back on the EDT,
  * it's applied only if that line's text still matches the snapshot, so a result overtaken by a
  * newer edit is silently dropped instead of corrupting the cache.
@@ -115,7 +119,8 @@ class MorphemeIndex(
     }
 
     private fun analyzeAndPublish(jobs: List<Pair<Int, String>>) {
-        val results = jobs.map { (line, snapshot) -> Triple(line, snapshot, analyzer.analyze(snapshot)) }
+        val analyze = { (line, snapshot): Pair<Int, String> -> Triple(line, snapshot, analyzer.analyze(snapshot)) }
+        val results = if (analyzer.isThreadSafe) Parallel.map(jobs, transform = analyze) else jobs.map(analyze)
         SwingUtilities.invokeLater { applyResults(results) }
     }
 

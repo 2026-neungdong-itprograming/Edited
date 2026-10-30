@@ -21,11 +21,11 @@ data class CreatedProject(val project: Project, val warnings: List<String>)
 object ProjectService {
 
     // Characters Windows forbids in file names (a superset of what POSIX forbids).
-    private val ILLEGAL_NAME_CHARS = "<>:\"/\\|?*".toSet()
-    private val RESERVED_NAMES = setOf("CON", "PRN", "AUX", "NUL") +
+    internal val ILLEGAL_NAME_CHARS = "<>:\"/\\|?*".toSet()
+    internal val RESERVED_NAMES = setOf("CON", "PRN", "AUX", "NUL") +
         (1..9).flatMap { listOf("COM$it", "LPT$it") }
 
-    const val FIRST_CHAPTER = "01. 제1화.md"
+    const val FIRST_CHAPTER = "01. 제1화.episode"
 
     fun defaultLocation(): String =
         Paths.get(System.getProperty("user.home"), "TextedProjects").toString()
@@ -80,7 +80,7 @@ object ProjectService {
             for (dir in listOf(Project.MANUSCRIPT_DIR, Project.CHARACTERS_DIR, Project.WORLD_DIR)) {
                 Files.createDirectories(root.resolve(dir))
             }
-            Files.writeString(root.resolve(Project.MANUSCRIPT_DIR).resolve(FIRST_CHAPTER), "# 제1화\n\n")
+            Files.writeString(root.resolve(Project.MANUSCRIPT_DIR).resolve(FIRST_CHAPTER), NovelFormat.EPISODE.template)
             Files.writeString(root.resolve(Project.USER_DICTIONARY), "{\n  \"words\": []\n}\n")
             Files.writeString(root.resolve(".gitignore"), ".texted/\n")
 

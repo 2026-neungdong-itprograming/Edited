@@ -1,5 +1,7 @@
 package io.github.nd2026.edited.lexer
 
+import io.github.nd2026.edited.core.Parallel
+
 /**
  * Shared entry point for features that need morphemes outside the editor (inspections, statistics,
  * search, export, history). Lead-owned; tasks only call it. Uses the same Kiwi instance as the
@@ -16,7 +18,7 @@ object Morphology {
     val isAvailable: Boolean get() = DefaultMorphemeAnalyzer.isAvailable
 
     /**
-     * Morphemes of [text]; offsets index [text]. Empty if Kiwi is unavailable.
+     * Morphemes of [text]; offsets index [text]. Empty if Kiwi is unavailable. Safe to call from any thread.
      *
      * Results are memoized per text (inspections, statistics, search and tags all re-read the same
      * manuscript lines), and the memo is dropped whenever the project dictionary reloads Kiwi.
@@ -24,23 +26,38 @@ object Morphology {
     fun analyze(text: String): List<Morpheme> {
         if (text.isEmpty()) return emptyList()
         val generation = DefaultMorphemeAnalyzer.generation
-        synchronized(cache) {
-            if (cacheGeneration != generation) {
-                cache.clear()
-                cacheGeneration = generation
+        val shard = shardOf(text)
+        synchronized(shard) {
+            if (shard.generation != generation) {
+                shard.clear()
+                shard.generation = generation
             }
-            cache[text]?.let { return it }
+            shard[text]?.let { return it }
         }
         val morphemes = DefaultMorphemeAnalyzer.analyze(text)
         // Don't memoize "Kiwi unavailable" or a result computed against a dictionary that was just replaced.
-        if (DefaultMorphemeAnalyzer.isAvailable && text.length <= MAX_CACHED_TEXT) synchronized(cache) {
-            if (cacheGeneration == generation) cache[text] = morphemes
+        if (DefaultMorphemeAnalyzer.isAvailable && text.length <= MAX_CACHED_TEXT) synchronized(shard) {
+            if (shard.generation == generation) shard[text] = morphemes
         }
         return morphemes
     }
 
-    /** Morphemes per line, each line's offsets relative to that line (matches `InspectionRule`'s 0-based lines). */
-    fun analyzeLines(lines: List<String>): List<List<Morpheme>> = lines.map { if (it.isBlank()) emptyList() else analyze(it) }
+    /**
+     * Morphemes per line, each line's offsets relative to that line (matches `InspectionRule`'s 0-based lines).
+     * Lines are analyzed in parallel on [Parallel.pool]; the result order always matches [lines].
+     */
+    fun analyzeLines(lines: List<String>): List<List<Morpheme>> =
+        Parallel.map(lines, minChunk = LINES_PER_TASK) { if (it.isBlank()) emptyList() else analyze(it) }
+
+    /**
+     * Analyzes every line of [texts] in parallel so later [analyze]/[analyzeLines] calls - even
+     * single-threaded ones on the EDT - are memo hits. Blocks until done; call it off the EDT.
+     */
+    fun prefetch(texts: Collection<String>) {
+        if (!isAvailable) return
+        val lines = texts.flatMap { it.split('\n') }.map { it.removeSuffix("\r") }.filter { it.isNotBlank() }.distinct()
+        Parallel.forEach(lines, minChunk = LINES_PER_TASK) { analyze(it) }
+    }
 
     /** [analyze] as a [MorphemeAnalyzer], for editors: reopening a tab re-reads lines from the memo instead of Kiwi. */
     val analyzer: MorphemeAnalyzer = object : MorphemeAnalyzer {
@@ -48,19 +65,35 @@ object Morphology {
             val morphemes = this@Morphology.analyze(text)
             return if (baseOffset == 0) morphemes else morphemes.map { it.copy(start = it.start + baseOffset, end = it.end + baseOffset) }
         }
+        override val isThreadSafe: Boolean get() = true
     }
 
     /** Drops memoized results; the next [analyze] calls go to Kiwi again. */
-    fun clearCache() = synchronized(cache) { cache.clear() }
+    fun clearCache() = shards.forEach { synchronized(it) { it.clear() } }
 
     private const val CACHE_ENTRIES = 50_000
     private const val MAX_CACHED_TEXT = 4_000
+    /** Lines handed to one worker at a time: a manuscript line (paragraph) takes Kiwi ~0.1-1 ms. */
+    private const val LINES_PER_TASK = 8
 
-    /** LRU memo of [analyze], keyed by the exact text. Guarded by itself. */
-    private val cache = object : LinkedHashMap<String, List<Morpheme>>(1024, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Morpheme>>?) = size > CACHE_ENTRIES
+    /**
+     * LRU memo of [analyze], keyed by the exact text and split into lock-striped shards by hash, so
+     * [Parallel.parallelism] workers hitting the memo at once rarely wait on each other. Each shard is guarded by itself.
+     */
+    private class Shard(private val capacity: Int) : LinkedHashMap<String, List<Morpheme>>(256, 0.75f, true) {
+        var generation = -1L
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Morpheme>>?) = size > capacity
     }
-    private var cacheGeneration = -1L
+
+    private val shards: Array<Shard> = run {
+        val count = Integer.highestOneBit((Parallel.parallelism * 4).coerceIn(4, 64) * 2 - 1)
+        Array(count) { Shard(CACHE_ENTRIES / count) }
+    }
+
+    private fun shardOf(text: String): Shard {
+        val h = text.hashCode()
+        return shards[(h xor (h ushr 16)) and (shards.size - 1)]
+    }
 
     /** Loads Kiwi on a background thread so the first real call doesn't stall the UI. */
     fun warmUp() {

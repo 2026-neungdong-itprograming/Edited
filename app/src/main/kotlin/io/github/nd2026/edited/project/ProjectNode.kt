@@ -23,7 +23,8 @@ sealed interface ProjectNode {
     }
 
     data class File(override val path: Path) : ProjectNode {
-        val isChapter: Boolean get() = name.endsWith(".md") || name.endsWith(".txt")
+        /** A text document Texted opens: its own [NovelFormat]s plus `.md`/`.txt`. */
+        val isChapter: Boolean get() = NovelFormat.isText(name)
     }
 
     companion object {
