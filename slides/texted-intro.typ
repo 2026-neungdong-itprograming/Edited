@@ -12,19 +12,15 @@
 #let primary-color = cl-grapefruit.darken(5%)
 #let primary-color-darken = cl-grapefruit.darken(70%)
 #let text-color = rgb("#3f3f46")
-#let accent = rgb("#0074d9")
 
 #show: simple-theme.with(
   aspect-ratio: "16-9",
-  footer: [Texted 소개 — 소설 쓰는 사람을 위한 워드프로세서],
+  footer: [Texted — 소설 집필용 워드프로세서],
   primary: primary-color-darken,
 )
 
-#set text(font: ("Noto Sans CJK KR"), lang: "ko", size: 22pt, fill: text-color)
-#show raw: set text(font: ("Noto Sans Mono CJK KR"))
-#show strong: set text(fill: primary-color)
-
-#let hl(body) = text(fill: accent, weight: "bold", body)
+#set text(font: "Noto Sans CJK KR", lang: "ko", size: 22pt, fill: text-color)
+#show raw: set text(font: "Noto Sans Mono CJK KR")
 
 #set page(
   // left colored bar
@@ -44,140 +40,119 @@
 #title-slide[
   = Texted
 
-  소설 쓰는 사람을 위한 워드프로세서
+  소설 집필용 워드프로세서
 
   #v(2em)
 
   2026-neungdong-itprograming #h(1em)
 
-  #datetime(year: 2026, month: 11, day: 27).display("[year]년 [month padding:none]월 [day padding:none]일")
+  #datetime(year: 2026, month: 11, day: 27).display("[year]. [month]. [day].")
 ]
 
-== 오늘 이야기할 것
+= 개요
 
-+ Texted가 뭔가요?
-+ 먼저 알아 둘 말 — 프로그램, 화면(GUI)
-+ Swing이 뭔가요?
-+ 어떤 기술을 썼나요?
-+ 정리
-
-= Texted가 뭔가요?
-
-== 웹소설 작가의 고민
-
-- 연재가 길어지면 회차가 #hl[수백 화]
-
-- "3화에서 이 인물 눈 색깔이 뭐였더라?"
-
-- "같은 말을 너무 자주 쓰는 것 같은데…"
-
-- "어제 지운 문단을 다시 살리고 싶다!"
-
-- 다 쓰고 나면 연재 사이트에 올릴 파일도 따로 만들어야 함
-
-== 그래서 만들었습니다
-
-- 프로그래머에게는 코드를 쓰고 · 검사하고 · 기록하는 #hl[전용 도구]가 있습니다.
-
-- 작가에게도 그런 도구가 있으면 어떨까?
+== 목적
 
 #definition[Texted][
-  원고를 #strong[쓰고], #strong[고치고], #strong[분량을 맞추고], #strong[설정을 챙기고], #strong[연재처에 올리는] 일을 한 프로그램 안에서 끝내는 워드프로세서
+  원고 작성, 교정, 분량 관리, 설정 관리, 연재용 파일 생성을 하나의 프로그램에서 수행하는 워드프로세서.
 ]
 
-== Texted로 할 수 있는 일
+- 대상: 웹소설 작가
+
+- 일반 문서 편집기의 한계
+  - 변경 내역을 줄 단위로만 비교함
+  - 맞춤법 외의 문장 문제(어미 반복, 이중 피동 등)를 검사하지 않음
+  - 인물·세계관 설정을 원고와 별도로 관리해야 함
+
+== 기능
 
 #simple-table(
   columns: (auto, 1fr),
-  table.header([*기능*], [*작가에게 주는 것*]),
-  [문장 검수], [너무 긴 문장, 같은 끝말("\~했다") 반복, 따옴표 실수를 알려 줌],
-  [분량 통계], [회차마다 몇 글자인지, 목표 분량을 얼마나 채웠는지],
-  [설정집], [인물·세계관 카드, 이 인물이 몇 화에 나왔는지],
-  [찾기·바꾸기], ["먹다"로 찾으면 먹었다·먹고·먹는까지 찾아 줌],
-  [내보내기], [연재 사이트에 붙여 넣을 글, 전자책 파일(EPUB)],
-  [원고 기록], [예전 버전 보기, 어느 문장이 어떻게 바뀌었는지],
+  table.header([*기능*], [*내용*]),
+  [문장 검수], [긴 문장, 어미 반복, 따옴표 짝 오류, 낱말 반복, 이중 피동 검출],
+  [분량 통계], [회차별 글자 수(공백 포함/제외), 목표 분량 달성률, 빈출 낱말],
+  [설정집], [인물·세계관 카드, 인물별 등장 회차, 미등록 인물 추천],
+  [찾기·바꾸기], [원고 전체 검색, 활용형 검색, 인물 이름 일괄 변경],
+  [내보내기], [TXT, EPUB(전자책) 파일 생성],
+  [원고 기록], [버전 자동 저장, 문장 단위 비교, 어미·조사·낱말 변경 구분],
 )
 
-= 먼저 알아 둘 말
+= 기본 용어
 
-== 프로그램은 무엇으로 만드나요?
+== 프로그래밍 언어와 JVM
 
-- #hl[프로그래밍 언어]: 컴퓨터에게 할 일을 적어 주는 글
-  - Texted는 #strong[Kotlin] (코틀린)으로 썼습니다.
+- 프로그래밍 언어: 컴퓨터가 수행할 작업을 기술하는 언어
+  - 본 프로젝트는 Kotlin 2.4로 작성함
 
-- Kotlin으로 쓴 프로그램은 #hl[JVM] (자바 가상 머신) 위에서 돌아갑니다.
-  - JVM = 어느 컴퓨터에서나 같은 방식으로 프로그램을 돌려 주는 "통역사"
-  - 그래서 윈도우에서도, 맥에서도 같은 프로그램이 돌아갑니다.
+- JVM (Java Virtual Machine)
+  - Java·Kotlin 프로그램을 실행하는 프로그램
+  - 운영체제(Windows, macOS 등)와 무관하게 동일한 프로그램을 실행함
+  - 본 프로젝트는 Java 25 환경에서 실행함
 
-- #hl[Java] (자바)는 JVM에서 돌아가는 또 하나의 언어로, Kotlin과 섞어 쓸 수 있습니다.
+== GUI
 
-== 화면(GUI)이란?
+- GUI (Graphical User Interface): 창, 버튼, 메뉴 등 그래픽 요소로 조작하는 화면
+
+- CLI (Command Line Interface): 명령어를 문자로 입력하여 조작하는 화면
 
 #simple-table(
   columns: (1fr, 1fr),
-  table.header([*CLI* — 글자로 명령], [*GUI* — 그림으로 조작]),
-  [검은 창에 명령어를 직접 타이핑], [창, 버튼, 메뉴를 마우스로 클릭],
-  [`git commit -m "저장"`], [\[저장\] 버튼 클릭],
-  [개발자에게 익숙함], [누구나 쓰기 쉬움],
+  table.header([*CLI*], [*GUI*]),
+  [명령어 입력], [마우스·키보드로 화면 요소 조작],
+  [`git commit -m "저장"`], [저장 버튼 클릭],
 )
 
-- GUI = Graphical User Interface (그래픽 사용자 인터페이스)
+- 본 프로젝트는 GUI 프로그램임
 
-- 작가가 쓰는 프로그램이니 당연히 #hl[GUI]가 필요합니다.
+= Swing
 
-- 그런데 창과 버튼은 어떻게 만들까요? → #hl[Swing]
-
-= Swing이 뭔가요?
-
-== Swing
+== 정의
 
 #definition[Swing][
-  Java에 #strong[기본으로 들어 있는 GUI 도구 상자]. 창·버튼·메뉴·글 입력 칸 같은 화면 부품을 미리 만들어 둔 것
+  Java 표준 라이브러리에 포함된 GUI 툴킷. 창, 버튼, 메뉴, 텍스트 입력 칸 등의 화면 구성 요소(컴포넌트)를 제공함.
 ]
 
-- 부품 이름은 J로 시작합니다: `JFrame`(창), `JButton`(버튼), `JTextArea`(글 입력 칸), `JMenu`(메뉴) …
+- 컴포넌트 예: `JFrame`(창), `JButton`(버튼), `JTextArea`(텍스트 입력 칸), `JMenu`(메뉴)
 
-- 레고 블록처럼 부품을 끼워 맞추면 화면이 완성됩니다.
+- 1998년 최초 공개, Java 1.2부터 표준 포함
 
-- 1998년에 처음 공개됐고, Java 1.2부터 Java에 기본으로 들어 있습니다.
+== AWT와의 비교
 
-== Swing 이전: AWT
-
-- Java의 첫 GUI 도구는 #hl[AWT] (Abstract Window Toolkit)였습니다.
+- AWT (Abstract Window Toolkit): Swing 이전의 Java GUI 툴킷
 
 #simple-table(
   columns: (auto, 1fr, 1fr),
   table.header([], [*AWT*], [*Swing*]),
-  [부품을 누가 그리나], [운영체제(윈도우·맥)의 부품을 빌려 씀], [Java가 직접 그림],
-  [모양], [운영체제마다 다르게 보임], [어디서나 똑같이 보임],
-  [별명], [무거운(heavyweight) 부품], [가벼운(lightweight) 부품],
+  [구현 방식], [운영체제의 컴포넌트를 사용함], [Java 코드로 직접 그림],
+  [화면 모양], [운영체제마다 다름], [운영체제와 무관하게 동일함],
+  [분류], [heavyweight 컴포넌트], [lightweight 컴포넌트],
 )
 
-- Swing은 AWT 위에 지어졌습니다. 창을 띄우는 일 같은 바닥 일은 여전히 AWT가 합니다.
+- Swing은 AWT를 기반으로 구현됨. 최상위 창 생성 등은 AWT가 담당함.
 
-== 화면 담당 일꾼은 한 명뿐
+== EDT (Event Dispatch Thread)
 
-- Swing에는 화면을 그리고 클릭·키보드 입력을 처리하는 #hl[전용 일꾼(스레드)]이 하나 있습니다.
-  - 이름: EDT (Event Dispatch Thread)
+- 스레드: 프로그램 안에서 작업을 수행하는 실행 단위
 
-- 이 일꾼에게 오래 걸리는 일을 시키면?
-  - 그동안 화면이 #strong[멈춥니다]. (버튼을 눌러도 반응 없음)
+- EDT: Swing에서 화면 그리기와 입력(클릭, 키보드) 처리를 전담하는 단일 스레드
 
-- 그래서 원고 전체 분석 같은 무거운 일은 #hl[다른 일꾼]에게 맡기고, 결과만 화면 일꾼에게 넘겨 줍니다.
+- EDT에서 오래 걸리는 작업을 수행하면 그동안 화면이 응답하지 않음
 
-== Texted는 Swing을 이렇게 썼습니다
+- 따라서 시간이 오래 걸리는 작업은 별도 스레드에서 수행하고, 결과만 EDT로 전달해야 함
 
-- Swing에서 빌린 것은 딱 #strong[두 가지]
-  - 창 (`JFrame`)
-  - 창마다 빈 도화지 한 장 (`RootPane`)
+== 본 프로젝트의 Swing 사용 범위
 
-- 버튼·메뉴·탭·편집기는 Swing 부품(`JButton` 등)을 #strong[쓰지 않고], 도화지 위에 #hl[직접 그렸습니다] (Java2D).
+- 사용한 Swing 요소
+  - `JFrame`: 최상위 창
+  - `SwingUtilities`: EDT에 작업 예약
+  - `RootPane : JComponent`: 창마다 하나씩 두는 직접 구현 컴포넌트
 
-- 비유: 문구점에서 완성된 스티커를 사는 대신, #hl[빈 도화지를 사서 직접 그림]
+- 사용하지 않은 Swing 요소
+  - `JButton`, `JPanel`, `JTextArea`, `JTree`, `JTabbedPane`, `JPopupMenu`, `JDialog` 등
 
-- 왜? 원하는 모양(Material 3 디자인)을 마음대로 만들고, 아주 긴 원고도 빠르게 보여 주려고
+- 버튼, 탭, 메뉴, 대화상자, 트리, 스크롤, 편집기는 Java2D로 직접 그린 `Widget`으로 구현함
 
-#pagebreak()
+== 화면 구성
 
 #align(center)[
   #raw-render(
@@ -185,150 +160,162 @@
     digraph {
       rankdir=TB;
       node [shape=box, style="rounded,filled", fontsize=16];
-      F [label="창 (JFrame) — Swing", fillcolor="#ffe4d6"];
-      R [label="도화지 (RootPane) — Swing", fillcolor="#ffe4d6"];
-      W [label="직접 만든 부품 묶음 (Widget)", fillcolor="#dbeafe"];
+      F [label="JFrame (Swing)", fillcolor="#ffe4d6"];
+      R [label="RootPane : JComponent (Swing)", fillcolor="#ffe4d6"];
+      W [label="Widget 트리 (Java2D)", fillcolor="#dbeafe"];
       E [label="편집기", fillcolor="#dbeafe"];
       M [label="메뉴", fillcolor="#dbeafe"];
-      P [label="패널 (원고·찾기·설정…)", fillcolor="#dbeafe"];
+      P [label="패널", fillcolor="#dbeafe"];
       B [label="버튼·탭", fillcolor="#dbeafe"];
       F -> R -> W;
       W -> E; W -> M; W -> P; W -> B;
     }
     ```,
-    width: 50%,
+    height: 52%,
   )
 ]
 
-주황색: Swing에서 빌린 것 · 파란색: 직접 그린 것
+#text(size: 18pt)[주황: Swing 컴포넌트 · 파랑: 직접 구현한 Widget]
 
-= 어떤 기술을 썼나요?
+- 직접 구현한 이유: Material 3 디자인 규격 적용, 대용량 원고의 렌더링 비용 제어
 
-== 기술 한눈에
+= 사용 기술
+
+== 기술 스택
 
 #text(size: 18pt)[
   #simple-table(
     columns: (auto, auto, 1fr),
-    table.header([*하는 일*], [*기술*], [*쉽게 말하면*]),
-    [언어], [Kotlin 2.4, Java 25], [프로그램을 쓴 글],
-    [화면], [Swing + Java2D], [창은 빌리고, 안쪽은 직접 그림],
-    [형태소 분석], [Kiwi], [문장을 뜻 단위로 쪼개는 도구],
-    [원고 기록], [JGit], [자동 세이브 포인트],
-    [설정 저장], [kotlinx-serialization], [설정을 파일(JSON)로 저장·읽기],
-    [빠른 그리기], [JCTools], [다시 그릴 곳 목록을 여러 일꾼이 안전하게 공유],
-    [아주 긴 원고], [Java FFM], [원고를 JVM 바깥 메모리에 보관],
-    [조립·빌드], [Gradle], [여러 코드 파일을 하나의 프로그램으로 묶음],
+    table.header([*구분*], [*기술*], [*용도*]),
+    [언어·런타임], [Kotlin 2.4, Java 25], [프로그램 작성 및 실행],
+    [빌드], [Gradle (Kotlin DSL)], [소스 코드 컴파일, 의존성 관리],
+    [GUI], [Swing, Java2D], [창 생성, 화면 그리기],
+    [형태소 분석], [Kiwi v0.24.0 (JNI)], [한국어 문장 분석],
+    [버전 관리], [Eclipse JGit 7.7], [원고 변경 기록 저장],
+    [직렬화], [kotlinx-serialization-json], [설정 파일(JSON) 읽기·쓰기],
+    [동시성], [JCTools `MpscArrayQueue`], [다시 그릴 영역 목록 관리],
+    [메모리], [Java FFM (`java.lang.foreign`)], [JVM 힙 외부 메모리에 원고 저장],
   )
 ]
 
-== 형태소 분석: Kiwi
+== 형태소 분석 (Kiwi)
 
-- #hl[형태소]: 뜻을 가진 가장 작은 말의 단위 (국어 시간에 배운 그것!)
+- 형태소: 의미를 가진 가장 작은 말의 단위
 
 #align(center)[
   #simple-table(
     columns: 9,
     [민준], [이], [가], [밥], [을], [먹], [었], [다], [.],
-    [이름], [], [조사], [명사], [조사], [동사], [과거], [끝말], [],
+    [NNP], [XSN], [JKS], [NNG], [JKO], [VV], [EP], [EF], [SF],
   )
 ]
 
-- 그래서 "먹었다 · 먹고 · 먹는"이 모두 #hl[`먹다`] 한 낱말인 걸 압니다.
-  - → "먹다"로 찾으면 전부 찾아 줌
+#text(size: 18pt)[NNP 고유명사 · JKS 주격 조사 · NNG 일반명사 · JKO 목적격 조사 · VV 동사 · EP 선어말 어미 · EF 종결 어미]
 
-- #hl[Kiwi]: 한국어 형태소 분석기. 다른 언어(C++)로 만든 것을 Java에서 불러 씁니다 (JNI).
+- 활용형을 기본형으로 환원함: 먹었다·먹고·먹는 → `먹다`
 
-- 설정집에 등록한 인물 이름은 Kiwi 사전에 자동으로 넣어서 이름으로 알아봅니다.
+- Kiwi: C++로 구현된 한국어 형태소 분석기. JNI를 통해 Java에서 호출함.
 
-== 원고 기록: JGit
+- 설정집의 인물 이름·별칭을 사용자 사전(고유명사)에 자동 등록함
 
-- 게임의 #hl[세이브 포인트]를 떠올려 보세요.
+== 버전 관리 (JGit)
 
-- `Ctrl+S`를 누를 때마다 원고 상태를 자동으로 기록합니다.
-  - 언제든 예전 버전으로 돌아가 볼 수 있음
+- Git: 파일 변경 이력을 기록하는 버전 관리 시스템
 
-- #hl[Git]: 프로그래머들이 코드의 변경 기록을 남길 때 쓰는 도구
-  - #hl[JGit] = Java로 만든 Git
+- JGit: Java로 구현된 Git
 
-- 프로그래머의 Git은 #strong[줄] 단위로 비교하지만, Texted는 #strong[문장] 단위로 비교합니다.
-  - `[어미]` `[조사]` `[낱말] 문 → 창문` 처럼 무엇이 바뀌었는지 알려 줌
+- 저장(`Ctrl+S`) 시 원고 상태를 자동으로 기록함
 
-== 아주 긴 원고도 빠르게
+- 비교 단위
+  - 일반적인 Git: 줄 단위
+  - 본 프로젝트: 문장 단위, 형태소 단위
 
-- 원고 수백 화 = 수백만 글자. 매번 전부 다시 그리면 느려집니다.
+- 변경 유형 표시: `[어미]` `[조사]` `[낱말] 문 → 창문`
 
-- 비유: 아주 긴 #hl[두루마리]를 창문으로 본다면?
-  - 창문에 보이는 부분만 그리면 됩니다 → #hl[보이는 줄만 그리기]
+== 편집기 구조
 
-- 비유: 글을 끼워 넣을 자리에 #hl[빈칸을 미리 비워 두기] → 갭 버퍼(Gap Buffer)
-  - 글자를 하나 넣을 때마다 뒤의 글자 수백만 개를 밀지 않아도 됨
+- 갭 버퍼 (Gap Buffer)
+  - 커서 위치에 빈 공간을 확보해 두는 텍스트 저장 방식
+  - 커서 위치에서의 삽입·삭제 시 뒤쪽 문자를 이동하지 않음
 
-- 바뀐 부분만 다시 그리기 (dirty region)
+- 가상 스크롤 (Virtual Scrolling)
+  - 화면에 보이는 줄만 그림
+  - 처리 비용이 원고 전체 길이가 아닌 화면 크기에 비례함
 
-== 얼마나 빠를까?
+- 부분 갱신 (Dirty Region)
+  - 변경된 영역만 다시 그림
+
+- 힙 외부 버퍼 (`NativeTextBuffer`)
+  - 원고를 JVM 힙 외부 메모리에 저장하여 가비지 컬렉션 부담을 줄임
+
+== 성능 측정 결과
 
 #simple-table(
   columns: (1fr, auto, auto),
   table.header([*항목*], [*100만 자*], [*1,000만 자*]),
-  [원고 불러오기], [0.05초], [0.1초],
-  [스크롤 한 장면 그리기 (95%가 이 안에 끝남)], [4.16 ms], [2.92 ms],
-  [글자 입력 → 화면에 보이기 (95%)], [3.44 ms], [2.03 ms],
+  [원고 불러오기], [50 ms], [103 ms],
+  [힙 메모리 사용량], [7.1 MB], [42.3 MB],
+  [스크롤 1프레임 (p95)], [4.16 ms], [2.92 ms],
+  [글자 입력 → 화면 반영 (p95)], [3.44 ms], [2.03 ms],
+  [실행 취소 → 화면 반영 (p95)], [2.15 ms], [4.28 ms],
 )
 
-- 1 ms = 1000분의 1초. 1초에 60장면을 보여 주려면 한 장면에 약 16.7 ms 안에 그려야 합니다.
+- p95: 전체 측정값 중 95%가 이 값 이하임
 
-- 원고가 #hl[10배] 길어져도 속도가 거의 같습니다 = 보이는 줄만 그리기 때문
+- 60 fps 기준 1프레임 허용 시간: 약 16.7 ms
 
-#text(size: 16pt, fill: luma(120))[측정: CPU 4개, JDK 25, 2026-10-02 (`docs/EDITOR_PERFORMANCE.md`)]
+#text(size: 16pt, fill: luma(120))[측정 환경: CPU 4개, JDK 25, 2026-10-02 (`docs/EDITOR_PERFORMANCE.md`)]
 
-== 일을 나눠서 하기
+== 병렬 처리
 
-- 컴퓨터 CPU에는 일꾼(코어)이 여러 명 있습니다.
+- 형태소 분석 소요 시간: 1줄당 약 1 ms
 
-- 형태소 분석은 한 줄에 약 1 ms. 2,000줄이면 혼자서 2초!
+- `Parallel.map`: 작업을 CPU 코어 수만큼 나누어 동시에 처리함
+  - 2,000줄 기준 4\~6배 단축
 
-- 원고를 나눠서 #hl[여러 일꾼이 동시에] 분석 → 4\~6배 빨라짐 (2,000줄 기준)
+- `BackgroundWork`: 원고 전체 분석을 EDT 외부 스레드에서 수행하고 결과만 EDT로 전달함
+  - 분석 중에도 화면이 응답함
 
-- 화면 일꾼(EDT)은 무거운 일을 하지 않고, 결과만 받아서 그립니다.
-  - → 분석하는 동안에도 화면이 멈추지 않음
+== 검수 규칙과 지시문
 
-== 그 밖의 기능
+- 맞춤법 검사: 자주 틀리는 표기(됬다, 몇일, 할께 등) 목록 기반 검출
 
-- #hl[맞춤법 검사]: 자주 틀리는 맞춤법(됬다, 몇일, 할께 …)에 빨간 물결 밑줄
-
-- #hl[지시문 `@`]: 원고에 `@Suppress("맞춤법")`라고 적으면 그 부분은 검사하지 않음
-  - 지시문은 원고 글자 수나 내보내기에 들어가지 않습니다.
-
-- #hl[내보내기]: 연재 사이트용 글(TXT), 전자책(EPUB)
-
-- #hl[AI 문장 다듬기] (선택): AI 서버 주소를 설정하면 고른 문장을 다듬어 줌
-  - 마음에 안 들면 실행 취소 한 번으로 되돌림
-
-= 정리
-
-== 한 장 요약
+- 지시문 `@Suppress`: 지정한 범위의 검사를 끔
 
 #simple-table(
-  columns: (auto, 1fr),
-  [*무엇을*], [웹소설 작가를 위한 워드프로세서 Texted],
-  [*화면*], [Swing에서 창과 도화지만 빌리고, 나머지는 직접 그림],
-  [*한국어*], [Kiwi로 형태소 분석 → 검수 · 통계 · 찾기],
-  [*기록*], [JGit으로 자동 세이브, 문장 단위 비교],
-  [*속도*], [보이는 줄만 그리기, 여러 일꾼이 나눠서 분석],
-  [*현재*], [0.1.0 버전, 자동 테스트 197개 통과],
+  columns: (auto, auto, auto),
+  table.header([*위치*], [*예*], [*적용 범위*]),
+  [파일 맨 위], [`@file:Suppress("맞춤법")`], [파일 전체],
+  [단독 줄], [`@Suppress("긴 문장")`], [다음 줄],
+  [문장 앞], [`@Suppress("맞춤법") 됬다고 했다.`], [해당 문장],
 )
 
-== 아직 부족한 점
+- 지시문은 글자 수 집계, 내보내기, 검색 대상에서 제외됨
 
-- 맞춤법 검사는 #hl[목록 방식]이라, 목록(약 70개)에 없는 실수는 못 잡습니다.
+= 현황
 
-- Kiwi는 앞뒤 문맥에 따라 다르게 분석할 때가 있습니다.
-  - 특히 사전에 없는 이름일 때
+== 현재 상태
 
-- 프로그램을 다시 켜면 글꼴 크기가 기본(16pt)으로 돌아갑니다.
+- 버전 0.1.0 (빌드 261029)
+
+- 작업 1\~6의 1차(글자 단위)·2차(형태소 단위) 구현 완료
+
+- 자동 테스트 197개 통과
+
+- 라이선스: GNU GPL v3.0
+
+== 알려진 한계
+
+- 맞춤법·이중 피동 검사는 목록 방식이므로 목록에 없는 오류는 검출하지 못함
+
+- Kiwi의 분석 결과가 앞뒤 문맥에 따라 달라짐 (사전에 없는 이름에서 두드러짐)
+
+- `.md` → `.episode` 확장자 변경 시 `# 제목` 줄이 본문으로 남음
+
+- 프로그램 재실행 시 글꼴 크기가 기본값(16pt)으로 돌아감
 
 #focus-slide[
   #text(size: 48pt)[
-    질문 있나요?
+    질의응답
   ]
 ]
